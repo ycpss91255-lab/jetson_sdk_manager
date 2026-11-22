@@ -105,7 +105,7 @@ Persist across reboots with `echo nfsd | sudo tee /etc/modules-load.d/nfsd.conf`
 
 ### Flash stalls mid-transfer / "Flashing - 99%" / `mount.nfs: No such file or directory`
 
-The in-container flash (either path) stalling partway is almost always the **host's NetworkManager** DHCP-probing the Jetson's USB gadget interface, timing out, and removing the address mid-transfer — the root cause traced in [#48](https://github.com/ycpss91255-docker/jetson_sdk_manager/issues/48). Run `./script/nm_flash_guard.sh auto` before flashing (it marks the interface unmanaged, then re-enables NM when the board boots). If instead you see `mount.nfs: ... No such file or directory`, the host `/srv/jetson_l4t` bridge is missing — `./script/host_setup.sh` sets it up (step 5/7).
+The in-container flash (either path) stalling partway is almost always the **host's NetworkManager** DHCP-probing the Jetson's USB gadget interface, timing out, and removing the address mid-transfer — the root cause traced in [#48](https://github.com/ycpss91255-lab/jetson_sdk_manager/issues/48). Run `./script/nm_flash_guard.sh auto` before flashing (it marks the interface unmanaged, then re-enables NM when the board boots). If instead you see `mount.nfs: ... No such file or directory`, the host `/srv/jetson_l4t` bridge is missing — `./script/host_setup.sh` sets it up (step 5/7).
 
 ### "SSH ready", then nothing / `Either the device cannot mount the NFS server on the host or a flash command has failed`
 
@@ -115,7 +115,7 @@ The board booted the initrd, the host reached it over the `fc00:1:1::/48` link (
 Error: Either the device cannot mount the NFS server on the host or a flash command has failed
 ```
 
-**Cause** ([#101](https://github.com/ycpss91255-docker/jetson_sdk_manager/issues/101), AGX Orin 64 GB, 2026-09-16): the **host runs its own `nfs-kernel-server`** (`rpc.mountd`, `nfsdcld`, `rpcbind` from boot). The flash container (`--network host`) runs `exportfs` + its own `rpc.mountd`, but the kernel `nfsd` is shared, and its export upcalls got answered by the **host's** mountd using the host's empty `/etc/exports` → the board's `mount.nfs [fc00:1:1::1]:…/rootfs /mnt` hangs forever. Diagnose on the host while it hangs:
+**Cause** ([#101](https://github.com/ycpss91255-lab/jetson_sdk_manager/issues/101), AGX Orin 64 GB, 2026-09-16): the **host runs its own `nfs-kernel-server`** (`rpc.mountd`, `nfsdcld`, `rpcbind` from boot). The flash container (`--network host`) runs `exportfs` + its own `rpc.mountd`, but the kernel `nfsd` is shared, and its export upcalls got answered by the **host's** mountd using the host's empty `/etc/exports` → the board's `mount.nfs [fc00:1:1::1]:…/rootfs /mnt` hangs forever. Diagnose on the host while it hangs:
 
 ```bash
 grep -E '^rc|^net' /proc/net/rpc/nfsd     # rc stuck at "rc 0 0 2" and the tcpconn count climbing = nobody answers
@@ -144,7 +144,7 @@ sudo exportfs -f                                        # flush the kernel expor
 
 ### Flash waits in `Waiting for target to boot-up...` while dmesg loops `Cannot enable. Maybe the USB cable is bad?`
 
-After `RCM-boot started` the board leaves RCM and comes back as the flash initrd's USB gadget (`0955:7035`, "Linux for Tegra", RNDIS). It only needs USB 2, but it also tries to train a SuperSpeed link on the same connector, and on some hosts (seen on an Ubuntu laptop, kernel 7.0, AGX Orin 64 GB, [#100](https://github.com/ycpss91255-docker/jetson_sdk_manager/issues/100)) that link never comes up. The xHCI SuperSpeed root hub then retries every few seconds, and each retry tears the working high-speed device down with it. `dmesg -w` shows the loop — note the two bus numbers, the SS half (`usb2-port3` here) and the HS half (`3-1`), which are the *same* physical connector:
+After `RCM-boot started` the board leaves RCM and comes back as the flash initrd's USB gadget (`0955:7035`, "Linux for Tegra", RNDIS). It only needs USB 2, but it also tries to train a SuperSpeed link on the same connector, and on some hosts (seen on an Ubuntu laptop, kernel 7.0, AGX Orin 64 GB, [#100](https://github.com/ycpss91255-lab/jetson_sdk_manager/issues/100)) that link never comes up. The xHCI SuperSpeed root hub then retries every few seconds, and each retry tears the working high-speed device down with it. `dmesg -w` shows the loop — note the two bus numbers, the SS half (`usb2-port3` here) and the HS half (`3-1`), which are the *same* physical connector:
 
 ```
 usb 2-3: Device not responding to setup address.
@@ -173,7 +173,7 @@ echo 0 | sudo tee /sys/bus/usb/devices/usb2/2-0:1.0/usb2-port3/disable   # or ju
 
 ### SDK Manager: "Device mode forwarding host setup failed"
 
-This is **not** a fundamental Docker limitation (an earlier README claimed so — it was wrong). SDK Manager's `device_mode_host_setup.sh` needs `iptables` (NAT MASQUERADE) and `dig` (a DNS reachability probe); both now ship in the `sdkm-base` layer, so the `cli` / `gui` stages clear this step. If it still fails, confirm you ran `./script/host_setup.sh` + `./script/nm_flash_guard.sh auto` and are signed in to your NVIDIA Developer account. Context: [#48](https://github.com/ycpss91255-docker/jetson_sdk_manager/issues/48).
+This is **not** a fundamental Docker limitation (an earlier README claimed so — it was wrong). SDK Manager's `device_mode_host_setup.sh` needs `iptables` (NAT MASQUERADE) and `dig` (a DNS reachability probe); both now ship in the `sdkm-base` layer, so the `cli` / `gui` stages clear this step. If it still fails, confirm you ran `./script/host_setup.sh` + `./script/nm_flash_guard.sh auto` and are signed in to your NVIDIA Developer account. Context: [#48](https://github.com/ycpss91255-lab/jetson_sdk_manager/issues/48).
 
 ### SDK Manager GUI: component install hangs (a step stuck at a fixed %)
 

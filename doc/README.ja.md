@@ -1,8 +1,8 @@
 # Jetson Orin ファクトリーフラッシュコンテナ
 
-[![CI](https://github.com/ycpss91255-docker/jetson_sdk_manager/actions/workflows/main.yaml/badge.svg)](https://github.com/ycpss91255-docker/jetson_sdk_manager/actions/workflows/main.yaml) [![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](../LICENSE)
+[![CI](https://github.com/ycpss91255-lab/jetson_sdk_manager/actions/workflows/main.yaml/badge.svg)](https://github.com/ycpss91255-lab/jetson_sdk_manager/actions/workflows/main.yaml) [![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](../LICENSE)
 
-コンテナ化された NVIDIA Jetson Linux（L4T）ファクトリーフラッシュワークフロー。Jetson Orin シリーズ（AGX Orin、Orin NX、Orin Nano）に対応。公式 BSP archive の `l4t_initrd_flash.sh --no-flash` / `--flash-only` を再現可能な 2 つの Docker stage にラップ。[`ycpss91255-docker/base`](https://github.com/ycpss91255-docker/base) 上に構築。この repo（および URL や badge で使われる正規の slug）は **`jetson_sdk_manager`** です。
+コンテナ化された NVIDIA Jetson Linux（L4T）ファクトリーフラッシュワークフロー。Jetson Orin シリーズ（AGX Orin、Orin NX、Orin Nano）に対応。公式 BSP archive の `l4t_initrd_flash.sh --no-flash` / `--flash-only` を再現可能な 2 つの Docker stage にラップ。[`ycpss91255-lab/base`](https://github.com/ycpss91255-lab/base) 上に構築。この repo（および URL や badge で使われる正規の slug）は **`jetson_sdk_manager`** です。
 
 **[English](../README.md)** | **[繁體中文](README.zh-TW.md)** | **[简体中文](README.zh-CN.md)** | **[日本語](README.ja.md)**
 
@@ -219,7 +219,7 @@ preset ごとのステータス：
 
 **prepare** stage は BSP 同梱の `l4t_initrd_flash.sh --no-flash` で host 側にフラッシュイメージを生成（Jetson 不要、NVIDIA ログイン不要）；**flash** stage は `--flash-only` で書き込みます — Jetson は `tegrarcm_v2` USB リンク上で最小限の initrd を起動し、その同じリンク上のローカル NFS エクスポートから image を取得します。これには host の `nfsd` モジュールのロードが必要ですが（[前提条件](#前提条件) 参照）、`iptables` も `usb-gadget` device-mode forwarding も不要です。
 
-**SDK Manager は「Docker 内で壊れている」わけでは _ありません_** — 本 repo はかつてそう主張していましたが、現在は撤回しています。よく知られた [Flashing-99% での停止](https://forums.developer.nvidia.com/t/docker-sdk-manager-flash-nx-struck-at-99/365066) は、**host の NetworkManager** が USB gadget リンクを DHCP プローブして破壊していたことが原因で（[#48](https://github.com/ycpss91255-docker/jetson_sdk_manager/issues/48)）、[`nm_flash_guard.sh`](script/nm_flash_guard.sh) で修正しました；*「Device mode forwarding host setup failed」* ステップは単に `iptables` + `dnsutils` が欠けていただけで、現在は `sdkm-base` に含まれています。[共有 host 準備](#前提条件)（`host_setup.sh`、`nm_flash_guard.sh auto`）と NVIDIA ログインがあれば、SDK Manager でもフラッシュできます — [SDK Manager（cli / gui）](#sdk-managercli--gui) 参照。ファクトリーフラッシュは、ログイン不要でスクリプト可能 / オフライン対応のため、引き続きデフォルトです。
+**SDK Manager は「Docker 内で壊れている」わけでは _ありません_** — 本 repo はかつてそう主張していましたが、現在は撤回しています。よく知られた [Flashing-99% での停止](https://forums.developer.nvidia.com/t/docker-sdk-manager-flash-nx-struck-at-99/365066) は、**host の NetworkManager** が USB gadget リンクを DHCP プローブして破壊していたことが原因で（[#48](https://github.com/ycpss91255-lab/jetson_sdk_manager/issues/48)）、[`nm_flash_guard.sh`](script/nm_flash_guard.sh) で修正しました；*「Device mode forwarding host setup failed」* ステップは単に `iptables` + `dnsutils` が欠けていただけで、現在は `sdkm-base` に含まれています。[共有 host 準備](#前提条件)（`host_setup.sh`、`nm_flash_guard.sh auto`）と NVIDIA ログインがあれば、SDK Manager でもフラッシュできます — [SDK Manager（cli / gui）](#sdk-managercli--gui) 参照。ファクトリーフラッシュは、ログイン不要でスクリプト可能 / オフライン対応のため、引き続きデフォルトです。
 
 ## Stages
 
@@ -456,11 +456,11 @@ make run -- -t flash
 
 ### フラッシュが転送途中で停止 / 「Flashing - 99%」 / `mount.nfs: No such file or directory`
 
-コンテナ内フラッシュ（どちらの経路でも）が途中で停止するのは、ほぼ常に **host の NetworkManager** が Jetson の USB gadget インターフェースを DHCP プローブし、タイムアウトして、転送の途中でアドレスを削除していることが原因です — [#48](https://github.com/ycpss91255-docker/jetson_sdk_manager/issues/48) で突き止めた根本原因です。フラッシュ前に `./script/nm_flash_guard.sh auto` を実行してください（インターフェースを unmanaged にマークし、ボード起動時に NM を再有効化します）。代わりに `mount.nfs: ... No such file or directory` が出る場合は、host の `/srv/jetson_l4t` ブリッジが欠けています — `./script/host_setup.sh` がそれをセットアップします（step 5/7）。
+コンテナ内フラッシュ（どちらの経路でも）が途中で停止するのは、ほぼ常に **host の NetworkManager** が Jetson の USB gadget インターフェースを DHCP プローブし、タイムアウトして、転送の途中でアドレスを削除していることが原因です — [#48](https://github.com/ycpss91255-lab/jetson_sdk_manager/issues/48) で突き止めた根本原因です。フラッシュ前に `./script/nm_flash_guard.sh auto` を実行してください（インターフェースを unmanaged にマークし、ボード起動時に NM を再有効化します）。代わりに `mount.nfs: ... No such file or directory` が出る場合は、host の `/srv/jetson_l4t` ブリッジが欠けています — `./script/host_setup.sh` がそれをセットアップします（step 5/7）。
 
 ### SDK Manager：「Device mode forwarding host setup failed」
 
-これは Docker の根本的な制約では**ありません**（以前の README はそう主張していましたが、それは誤りでした）。SDK Manager の `device_mode_host_setup.sh` は `iptables`（NAT MASQUERADE）と `dig`（DNS 到達性プローブ）を必要とします；どちらも現在は `sdkm-base` レイヤーに含まれているため、`cli` / `gui` stage はこのステップをクリアします。それでも失敗する場合は、`./script/host_setup.sh` + `./script/nm_flash_guard.sh auto` を実行したか、NVIDIA Developer アカウントでサインインしているかを確認してください。詳細：[#48](https://github.com/ycpss91255-docker/jetson_sdk_manager/issues/48)。
+これは Docker の根本的な制約では**ありません**（以前の README はそう主張していましたが、それは誤りでした）。SDK Manager の `device_mode_host_setup.sh` は `iptables`（NAT MASQUERADE）と `dig`（DNS 到達性プローブ）を必要とします；どちらも現在は `sdkm-base` レイヤーに含まれているため、`cli` / `gui` stage はこのステップをクリアします。それでも失敗する場合は、`./script/host_setup.sh` + `./script/nm_flash_guard.sh auto` を実行したか、NVIDIA Developer アカウントでサインインしているかを確認してください。詳細：[#48](https://github.com/ycpss91255-lab/jetson_sdk_manager/issues/48)。
 
 ### SDK Manager GUI：コンポーネントのインストールがハングする（あるステップが特定の % で停止）
 

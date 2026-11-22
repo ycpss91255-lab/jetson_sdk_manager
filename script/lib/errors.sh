@@ -11,7 +11,7 @@
 #     --detail "HTTP 404 fetching ${url}" \
 #     --action "Check supported versions in config/jetson/_l4t_mapping.yaml" \
 #     --action "Verify NVIDIA archive availability: <archive-url>" \
-#     --report "https://github.com/ycpss91255-docker/jetson_sdk_manager/issues"
+#     --report "https://github.com/ycpss91255-lab/jetson_sdk_manager/issues"
 #
 # Categories steer the user toward the right doc section in README.
 # Add a new category by editing _CATEGORY_HINTS below.
@@ -19,7 +19,7 @@
 set -euo pipefail
 
 # Default report URL — overridable per-call with --report.
-ERRORS_REPORT_URL="${ERRORS_REPORT_URL:-https://github.com/ycpss91255-docker/jetson_sdk_manager/issues}"
+ERRORS_REPORT_URL="${ERRORS_REPORT_URL:-https://github.com/ycpss91255-lab/jetson_sdk_manager/issues}"
 
 # `-g` so this stays global when errors.sh is sourced from inside a
 # function (e.g. bats setup()) — `declare -A` alone would create a

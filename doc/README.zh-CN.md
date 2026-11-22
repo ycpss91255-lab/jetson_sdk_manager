@@ -1,8 +1,8 @@
 # Jetson Orin 工厂烧录容器
 
-[![CI](https://github.com/ycpss91255-docker/jetson_sdk_manager/actions/workflows/main.yaml/badge.svg)](https://github.com/ycpss91255-docker/jetson_sdk_manager/actions/workflows/main.yaml) [![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](../LICENSE)
+[![CI](https://github.com/ycpss91255-lab/jetson_sdk_manager/actions/workflows/main.yaml/badge.svg)](https://github.com/ycpss91255-lab/jetson_sdk_manager/actions/workflows/main.yaml) [![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](../LICENSE)
 
-容器化的 NVIDIA Jetson Linux（L4T）工厂烧录流程，支持 Jetson Orin 系列设备（AGX Orin、Orin NX、Orin Nano）。将官方 BSP archive 中的 `l4t_initrd_flash.sh --no-flash` / `--flash-only` 包装为两个可重现的 Docker stage。构建于 [`ycpss91255-docker/base`](https://github.com/ycpss91255-docker/base) 之上。本 repo（以及 URL 与 badge 中使用的规范 slug）是 **`jetson_sdk_manager`**。
+容器化的 NVIDIA Jetson Linux（L4T）工厂烧录流程，支持 Jetson Orin 系列设备（AGX Orin、Orin NX、Orin Nano）。将官方 BSP archive 中的 `l4t_initrd_flash.sh --no-flash` / `--flash-only` 包装为两个可重现的 Docker stage。构建于 [`ycpss91255-lab/base`](https://github.com/ycpss91255-lab/base) 之上。本 repo（以及 URL 与 badge 中使用的规范 slug）是 **`jetson_sdk_manager`**。
 
 **[English](../README.md)** | **[繁體中文](README.zh-TW.md)** | **[简体中文](README.zh-CN.md)** | **[日本語](README.ja.md)**
 
@@ -217,7 +217,7 @@ Host 端会自动在 USB 网络接口配上 `192.168.55.x`（用 `ip a` 确认�
 
 **prepare** stage 使用 BSP 自带的 `l4t_initrd_flash.sh --no-flash` 在 host 端生成烧录 image（不需 Jetson、不需 NVIDIA 登录）；**flash** stage 以 `--flash-only` 写入：Jetson 经 `tegrarcm_v2` USB 链路开机进一个精简 initrd,再从这条链路上的本地 NFS export 拉取 image。这需要 host 载入 `nfsd` 模块（见 [前置要求](#前置要求)），但**不需** `iptables`、**不需** `usb-gadget` device-mode forwarding。
 
-**SDK Manager 并_非_「在 Docker 内坏掉」** —— 这是本 repo 早先的说法、现已撤回。那个众所周知的 [Flashing-99% 卡死](https://forums.developer.nvidia.com/t/docker-sdk-manager-flash-nx-struck-at-99/365066)，根因是 **host 的 NetworkManager** 对 USB gadget 链路做 DHCP 探测并把它拆掉（[#48](https://github.com/ycpss91255-docker/jetson_sdk_manager/issues/48)），已由 [`nm_flash_guard.sh`](script/nm_flash_guard.sh) 修复；而 *「Device mode forwarding host setup failed」* 那一步只是缺了 `iptables` + `dnsutils`，现已纳入 `sdkm-base`。配上[共用的 host 前置](#前置要求)（`host_setup.sh`、`nm_flash_guard.sh auto`）并登录 NVIDIA 账号后，SDK Manager 即可烧录 —— 见 [SDK Manager（cli / gui）](#sdk-managercli--gui)。工厂烧录之所以仍是默认，是因为它不需登录且可脚本化 / 可离线。
+**SDK Manager 并_非_「在 Docker 内坏掉」** —— 这是本 repo 早先的说法、现已撤回。那个众所周知的 [Flashing-99% 卡死](https://forums.developer.nvidia.com/t/docker-sdk-manager-flash-nx-struck-at-99/365066)，根因是 **host 的 NetworkManager** 对 USB gadget 链路做 DHCP 探测并把它拆掉（[#48](https://github.com/ycpss91255-lab/jetson_sdk_manager/issues/48)），已由 [`nm_flash_guard.sh`](script/nm_flash_guard.sh) 修复；而 *「Device mode forwarding host setup failed」* 那一步只是缺了 `iptables` + `dnsutils`，现已纳入 `sdkm-base`。配上[共用的 host 前置](#前置要求)（`host_setup.sh`、`nm_flash_guard.sh auto`）并登录 NVIDIA 账号后，SDK Manager 即可烧录 —— 见 [SDK Manager（cli / gui）](#sdk-managercli--gui)。工厂烧录之所以仍是默认，是因为它不需登录且可脚本化 / 可离线。
 
 ## Stages
 
@@ -454,11 +454,11 @@ make run -- -t flash
 
 ### Flash 烧到一半卡住 / 「Flashing - 99%」 / `mount.nfs: No such file or directory`
 
-容器内 flash（任一路径）烧到一半卡住，几乎总是 **host 的 NetworkManager** 对 Jetson 的 USB gadget 接口做 DHCP 探测、超时、并在传输途中移除地址 —— 这是 [#48](https://github.com/ycpss91255-docker/jetson_sdk_manager/issues/48) 追查到的根因。烧录前跑 `./script/nm_flash_guard.sh auto`（它会把接口标记为 unmanaged，并在板子开机后重新启用 NM）。若你看到的是 `mount.nfs: ... No such file or directory`，则是缺了 host 的 `/srv/jetson_l4t` 桥接 —— `./script/host_setup.sh` 会设好它（步骤 5/7）。
+容器内 flash（任一路径）烧到一半卡住，几乎总是 **host 的 NetworkManager** 对 Jetson 的 USB gadget 接口做 DHCP 探测、超时、并在传输途中移除地址 —— 这是 [#48](https://github.com/ycpss91255-lab/jetson_sdk_manager/issues/48) 追查到的根因。烧录前跑 `./script/nm_flash_guard.sh auto`（它会把接口标记为 unmanaged，并在板子开机后重新启用 NM）。若你看到的是 `mount.nfs: ... No such file or directory`，则是缺了 host 的 `/srv/jetson_l4t` 桥接 —— `./script/host_setup.sh` 会设好它（步骤 5/7）。
 
 ### SDK Manager：「Device mode forwarding host setup failed」
 
-这**不是** Docker 的根本性限制（早先的 README 这样宣称 —— 那是错的）。SDK Manager 的 `device_mode_host_setup.sh` 需要 `iptables`（NAT MASQUERADE）和 `dig`（一个 DNS 可达性探测）；两者现在都随 `sdkm-base` 层一起提供，所以 `cli` / `gui` stage 能通过这一步。若仍失败，确认你跑了 `./script/host_setup.sh` + `./script/nm_flash_guard.sh auto` 并已登录你的 NVIDIA Developer 账号。背景：[#48](https://github.com/ycpss91255-docker/jetson_sdk_manager/issues/48)。
+这**不是** Docker 的根本性限制（早先的 README 这样宣称 —— 那是错的）。SDK Manager 的 `device_mode_host_setup.sh` 需要 `iptables`（NAT MASQUERADE）和 `dig`（一个 DNS 可达性探测）；两者现在都随 `sdkm-base` 层一起提供，所以 `cli` / `gui` stage 能通过这一步。若仍失败，确认你跑了 `./script/host_setup.sh` + `./script/nm_flash_guard.sh auto` 并已登录你的 NVIDIA Developer 账号。背景：[#48](https://github.com/ycpss91255-lab/jetson_sdk_manager/issues/48)。
 
 ### SDK Manager GUI：组件安装卡住（某步停在固定百分比）
 
