@@ -48,25 +48,9 @@ setup() {
   assert_success
 }
 
-@test "Makefile exists (repo entry)" {
-  assert [ -f /source/script/docker/Makefile ]
-}
-
-@test "Makefile has build target" {
-  run grep -E '^build:' /source/script/docker/Makefile
-  assert_success
-}
-
-@test "Makefile upgrade target uses ./.base/upgrade.sh (not ./.base/script/upgrade.sh)" {
-  # Regression: the Makefile symlinked into every downstream repo has
-  # called `./.base/script/upgrade.sh` since v0.10.x, but upgrade.sh
-  # actually lives at template root (`./.base/upgrade.sh`). The
-  # broken target produced "No such file or directory" on `make upgrade`
-  # / `make upgrade-check` for fresh consumer repos.
-  run grep -E '^[[:space:]]+\./.base/upgrade\.sh' /source/script/docker/Makefile
-  assert_success
-  refute_output --partial "./.base/script/upgrade.sh"
-}
+# #546: the container-ops Makefile is retired for `just`; its existence /
+# build-target / upgrade-path checks moved to justfile_spec.bats (static)
+# + justfile_user_spec.bats (executable). Makefile.ci (CI entry) stays.
 
 @test "Makefile.ci exists (template CI)" {
   assert [ -f /source/Makefile.ci ]
@@ -92,18 +76,6 @@ setup() {
   # point. The recipe must pass $(VERSION) to ./upgrade.sh so an empty
   # VERSION resolves to "latest" and a set VERSION pins a specific tag.
   run grep -E '^[[:space:]]+\./upgrade\.sh \$\(VERSION\)' /source/Makefile.ci
-  assert_success
-}
-
-@test "Makefile upgrade-check tolerates upgrade.sh exit 1 (update available)" {
-  # Regression #175: `upgrade.sh --check` exits 1 when an update is
-  # available (documented shell convention so `if ./upgrade.sh --check;
-  # then ...` works). The Makefile recipe must wrap the call so make
-  # treats exit 1 as success — the check itself succeeded, the user-
-  # facing message already conveys the result. Exit codes ≥2 (genuine
-  # failures) still propagate.
-  run grep -E '\./.base/upgrade\.sh --check \|\| \[ \$\$\? -eq 1 \]' \
-      /source/script/docker/Makefile
   assert_success
 }
 
@@ -228,30 +200,13 @@ setup() {
   assert_success
 }
 
-@test "lib/compose.sh _compose_project wraps -p with PROJECT_NAME" {
-  run grep -E '\-p .*PROJECT_NAME' /source/script/docker/lib/compose.sh
-  assert_success
-}
-
-@test "build.sh routes compose call through _compose_project" {
-  run grep -E '_compose_project ' /source/script/docker/wrapper/build.sh
-  assert_success
-}
-
-@test "run.sh routes compose calls through _compose_project" {
-  run grep -E '_compose_project ' /source/script/docker/wrapper/run.sh
-  assert_success
-}
-
-@test "exec.sh routes compose call through _compose_project" {
-  run grep -E '_compose_project ' /source/script/docker/wrapper/exec.sh
-  assert_success
-}
-
-@test "stop.sh routes compose call through _compose_project" {
-  run grep -E '_compose_project ' /source/script/docker/wrapper/stop.sh
-  assert_success
-}
+# Wrapper -> compose dispatch is asserted behaviourally in
+# test/integration/wrapper_compose_dispatch_spec.bats (#490): each wrapper
+# is run with --dry-run and the planned `docker compose -p <project> <verb>`
+# is checked (incl. the -p flag, catching a raw-`docker compose` bypass).
+# The old name-coupled greps for `_compose_project` here were removed —
+# they broke on every internal rename (#480 shim, #484 rename) and could
+# not catch a bypass.
 
 @test "exec.sh loads .env via _load_env helper" {
   run grep -E '_load_env .*\.env' /source/script/docker/wrapper/exec.sh
@@ -294,34 +249,23 @@ setup() {
 }
 
 @test "run.sh devel branch uses compose exec to enter shell" {
-  # Refactored: now goes through `_compose_project exec` wrapper.
-  run grep -E '_compose_project exec' /source/script/docker/wrapper/run.sh
+  # Refactored: now goes through `_compose_dispatch exec` shim (#465)
+  # which delegates to `_compose_project exec` after overlay routing.
+  run grep -E '_compose_(project|dispatch) exec' /source/script/docker/wrapper/run.sh
   assert_success
 }
 
-@test "run.sh foreground installs trap to auto-down on exit" {
-  # #386: trap calls _compose_cleanup which runs compose down. Trap is
-  # installed centrally before the dispatch block so both devel and
-  # non-devel foreground paths get the cleanup; -d / --no-rm opt out.
-  run grep -E 'trap _compose_cleanup EXIT' /source/script/docker/wrapper/run.sh
-  assert_success
-  run grep -E '_compose_cleanup\(\)' /source/script/docker/wrapper/run.sh
-  assert_success
-}
+# run.sh foreground EXIT-trap cleanup (auto compose-down with
+# --remove-orphans -t 0) is asserted behaviourally in
+# wrapper_compose_dispatch_spec.bats (#490) via the dry-run output, instead
+# of grepping the `_app_cleanup` identifier (renamed in #440).
 
-@test "run.sh _compose_cleanup uses --remove-orphans + short timeout" {
-  # #386: aligned with stop.sh's _down_one so worktree-removed-before-stop
-  # network leaks get caught. -t 0 skips the default 10s SIGTERM grace
-  # period (user already exited the foreground shell — nothing to drain).
-  run grep -E '_compose_cleanup\(\)' /source/script/docker/wrapper/run.sh
-  assert_success
-  run grep -E 'down --remove-orphans -t 0|down -t 0 --remove-orphans' /source/script/docker/wrapper/run.sh
-  assert_success
-}
-
-@test "run.sh non-devel TARGET still uses compose run --rm" {
-  # test/runtime/etc one-shots stay on compose run --rm (no exec needed)
-  run grep -E 'run --rm' /source/script/docker/wrapper/run.sh
+@test "run.sh non-devel TARGET uses compose up (#458)" {
+  # #458: non-devel stages unified to `compose up` so container_name takes
+  # effect. Previously `run --rm` bypassed it with random hash names.
+  run grep -E 'compose run --rm' /source/script/docker/wrapper/run.sh
+  assert_failure
+  run grep -E 'up "?\$\{TARGET\}"?' /source/script/docker/wrapper/run.sh
   assert_success
 }
 
@@ -466,7 +410,7 @@ setup() {
   # without docker on PATH so the precheck fails (no container can be found).
   local _tmp
   _tmp="$(mktemp -d)"
-  cat > "${_tmp}/.env" <<EOF
+  cat > "${_tmp}/.env.generated" <<EOF
 USER_NAME=alice
 DOCKER_HUB_USER=alice
 IMAGE_NAME=missing-image-$$
@@ -488,7 +432,7 @@ EOF
 @test "exec.sh --dry-run skips precheck and prints compose command" {
   local _tmp
   _tmp="$(mktemp -d)"
-  cat > "${_tmp}/.env" <<EOF
+  cat > "${_tmp}/.env.generated" <<EOF
 USER_NAME=alice
 DOCKER_HUB_USER=alice
 IMAGE_NAME=ghost-$$
@@ -520,6 +464,14 @@ EOF
   assert_success
 }
 
+@test "Dockerfile.test-tools installs just (#546: justfile entry-point execution in CI)" {
+  # #546 retires the Makefile for `just`; the test-tools image must carry
+  # `just` so justfile_user_spec / upgrade-check can exercise the entry
+  # point for real (mirroring the old executable Makefile tests).
+  run grep -E 'apk add .*\bjust\b' /source/dockerfile/Dockerfile.test-tools
+  assert_success
+}
+
 @test "Dockerfile.test-tools declares ARG TARGETARCH" {
   run grep -E '^ARG TARGETARCH' /source/dockerfile/Dockerfile.test-tools
   assert_success
@@ -537,6 +489,18 @@ EOF
   # consume the BuildKit-injected value.
   run grep -E '^ARG TARGETARCH$' /source/dockerfile/Dockerfile.test-tools
   assert_success
+}
+
+@test "Dockerfile.test-tools curl release downloads retry on transient failure (#550)" {
+  # The shellcheck + hadolint binaries are fetched from github.com release
+  # CDN at build time; a transient 504 there used to fail the whole build
+  # first-hit (no retry). Every curl that pulls a release must use
+  # --retry-all-errors so a 504/timeout retries transparently instead of
+  # blocking every code PR's CI on a release-CDN hiccup.
+  local _n
+  _n="$(grep -cE 'curl .*--retry-all-errors' /source/dockerfile/Dockerfile.test-tools)"
+  # both the shellcheck tarball and the hadolint binary downloads
+  [ "${_n}" -ge 2 ]
 }
 
 @test "Dockerfile.test-tools branches case for amd64 and arm64" {
@@ -636,17 +600,18 @@ _stage_lint_layout() {
   rm -rf "${_tmp}"
 }
 
-@test "build.sh errors with a clear diagnostic when _lib.sh missing from both paths (issue #104)" {
-  # No .base/script/docker/lib/_lib.sh nor sibling _lib.sh → explicit
-  # non-zero exit + error message pointing the user at the two
-  # expected paths. Better UX than the old silent inline fallback
-  # that hid the absence.
+@test "build.sh errors with a clear diagnostic when bootstrap/_lib.sh missing (issue #104, #408)" {
+  # build.sh copied alone (no lib/bootstrap.sh, no _lib.sh) -> explicit
+  # non-zero exit + a clear broken-install diagnostic. Post-#408 the
+  # shared preamble lives in lib/bootstrap.sh (which in turn sources
+  # _lib.sh), so the first missing dependency reported is bootstrap.sh.
+  # Better UX than a cryptic `_bootstrap: command not found`.
   local _tmp
   _tmp="$(mktemp -d)"
   cp /source/script/docker/wrapper/build.sh "${_tmp}/build.sh"
   run bash "${_tmp}/build.sh" -h
   assert_failure
-  assert_output --partial "cannot find _lib.sh"
+  assert_output --partial "cannot find lib/bootstrap.sh"
   rm -rf "${_tmp}"
 }
 
@@ -1366,5 +1331,58 @@ EOF
   # original inline BASH_SOURCE form or the _SETUP_SCRIPT_DIR indirection.
   run grep -E "(dirname.*BASH_SOURCE|_SETUP_SCRIPT_DIR).*\.\..*\.\." \
     /source/script/docker/wrapper/setup.sh
+  assert_success
+}
+
+# ════════════════════════════════════════════════════════════════════
+# #440: pre/post hook wiring presence across all 7 wrappers
+# ════════════════════════════════════════════════════════════════════
+
+@test "all 7 wrappers call _run_pre_hook with their own name (#440)" {
+  local _w
+  for _w in build run exec stop prune setup setup_tui; do
+    run grep -E "_run_pre_hook ${_w}\b" "/source/script/docker/wrapper/${_w}.sh"
+    [[ "${status}" -eq 0 ]] \
+      || { echo "missing _run_pre_hook ${_w} in ${_w}.sh"; return 1; }
+  done
+}
+
+@test "all 7 wrappers call _run_post_hook with their own name (#440)" {
+  local _w
+  for _w in build run exec stop prune setup setup_tui; do
+    run grep -E "_run_post_hook ${_w}\b" "/source/script/docker/wrapper/${_w}.sh"
+    [[ "${status}" -eq 0 ]] \
+      || { echo "missing _run_post_hook ${_w} in ${_w}.sh"; return 1; }
+  done
+}
+
+@test "run.sh _app_cleanup runs post-hook before compose down (#440)" {
+  # Order matters: container must still be alive when post-hook runs
+  # so the hook can `docker exec` for final reporting.
+  run bash -c "
+    awk '
+      /_app_cleanup\\(\\) \\{/ { in_func = 1; next }
+      in_func && /_run_post_hook run/ { print \"POST_LINE=\" NR; post_seen = 1 }
+      in_func && /_compose_(project|dispatch) down/ { print \"DOWN_LINE=\" NR; down_seen = 1 }
+      in_func && /^\\}/ { exit }
+    ' /source/script/docker/wrapper/run.sh
+  "
+  assert_output --partial "POST_LINE="
+  assert_output --partial "DOWN_LINE="
+  local _post_line _down_line
+  _post_line="$(echo "${output}" | grep POST_LINE | cut -d= -f2 | head -1)"
+  _down_line="$(echo "${output}" | grep DOWN_LINE | cut -d= -f2 | head -1)"
+  (( _post_line < _down_line )) \
+    || { echo "post-hook should run before compose down: post=${_post_line} down=${_down_line}"; return 1; }
+}
+
+@test "lib/hook.sh skips both helpers under DRY_RUN (#440, #13)" {
+  # Regression guard for Q13: dry-run contract requires no side effects.
+  run grep -E 'DRY_RUN.*true' /source/script/docker/lib/hook.sh
+  assert_success
+}
+
+@test "lib/hook.sh hard-fails on present-but-not-executable hook (#440, #11)" {
+  run grep -E 'not executable.*chmod' /source/script/docker/lib/hook.sh
   assert_success
 }

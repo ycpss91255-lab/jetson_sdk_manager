@@ -3,60 +3,27 @@
 
 set -euo pipefail
 
-# `-C <dir>` / `--chdir <dir>` pre-pass — see build.sh for the full
-# rationale (refs docker_harness#53). Override FILE_PATH before _lib.sh
-# is sourced so all path-dependent operations honor the target repo.
-# FILE_PATH detection covers root-symlink (pre-#330), script/-subfolder
-# (post-#330), and direct invocation — see build.sh for the heuristic.
-_FILE_PATH_INVOKE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-if [[ -d "${_FILE_PATH_INVOKE_DIR}/.base" ]]; then
-  FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
-elif [[ -d "${_FILE_PATH_INVOKE_DIR}/../.base" ]]; then
-  FILE_PATH="$(cd -- "${_FILE_PATH_INVOKE_DIR}/.." && pwd -P)"
-elif [[ -f "${_FILE_PATH_INVOKE_DIR}/../lib/_lib.sh" ]]; then
-  FILE_PATH="$(cd -- "${_FILE_PATH_INVOKE_DIR}/.." && pwd -P)"
-else
-  FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
-fi
-unset _FILE_PATH_INVOKE_DIR
-_chdir_i=1
-while (( _chdir_i <= $# )); do
-  case "${!_chdir_i}" in
-    -C|--chdir)
-      _chdir_next=$((_chdir_i + 1))
-      if (( _chdir_next > $# )) || [[ -z "${!_chdir_next:-}" ]]; then
-        printf '[run] ERROR: -C/--chdir requires a value\n' >&2
-        exit 2
-      fi
-      _chdir_arg="${!_chdir_next}"
-      if [[ ! -d "${_chdir_arg}" ]]; then
-        printf '[run] ERROR: -C target is not a directory: %s\n' "${_chdir_arg}" >&2
-        exit 2
-      fi
-      FILE_PATH="$(cd -- "${_chdir_arg}" && pwd -P)"
-      _chdir_i=$((_chdir_next + 1))
-      ;;
-    *)
-      _chdir_i=$((_chdir_i + 1))
-      ;;
-  esac
+# Shared wrapper preamble (#408 sub-task A): resolve FILE_PATH across the
+# symlink / script-subfolder / direct / /lint layouts, honor -C/--chdir,
+# and source _lib.sh -- all in lib/bootstrap.sh. See build.sh for the
+# locator rationale.
+_bootstrap_self="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
+for _bootstrap_cand in \
+  "$(dirname -- "${_bootstrap_self}")/../lib/bootstrap.sh" \
+  "$(dirname -- "${_bootstrap_self}")/lib/bootstrap.sh" \
+  "$(dirname -- "${_bootstrap_self}")/.base/script/docker/lib/bootstrap.sh"; do
+  if [[ -f "${_bootstrap_cand}" ]]; then
+    # shellcheck source=script/docker/lib/bootstrap.sh
+    source "${_bootstrap_cand}"
+    break
+  fi
 done
-unset _chdir_i _chdir_next _chdir_arg
-readonly FILE_PATH
-# _lib.sh lookup: .base/script/docker/lib/_lib.sh in consumer repos, or
-# sibling _lib.sh in /lint/ (Dockerfile test stage). See build.sh.
-if [[ -f "${FILE_PATH}/.base/script/docker/lib/_lib.sh" ]]; then
-  # shellcheck disable=SC1091
-  source "${FILE_PATH}/.base/script/docker/lib/_lib.sh"
-elif [[ -f "${FILE_PATH}/lib/_lib.sh" ]]; then
-  # shellcheck disable=SC1091
-  source "${FILE_PATH}/lib/_lib.sh"
-else
-  printf "[run] ERROR: cannot find _lib.sh — expected one of:\n" >&2
-  printf "  %s\n" "${FILE_PATH}/.base/script/docker/lib/_lib.sh" >&2
-  printf "  %s\n" "${FILE_PATH}/lib/_lib.sh" >&2
+unset _bootstrap_self _bootstrap_cand
+if ! declare -F _bootstrap >/dev/null 2>&1; then
+  printf '[run] ERROR: cannot find lib/bootstrap.sh (which sources _lib.sh) -- broken install?\n' >&2
   exit 1
 fi
+_bootstrap "$@"
 
 # i18n message tables — split by semantic category (#278 PR-2).
 # Each _msg_<category> returns plain i18n body only; tag + LEVEL keyword
@@ -73,19 +40,19 @@ _msg_bootstrap() {
 
 _msg_drift() {
   case "${_LANG}:${1:?}" in
-    zh-TW:regen)  echo "重新產生 .env / compose.yaml（setup.conf 已變更）" ;;
-    zh-CN:regen)  echo "重新生成 .env / compose.yaml（setup.conf 已变更）" ;;
-    ja:regen)     echo ".env / compose.yaml を再生成中（setup.conf が変更されました）" ;;
-    *:regen)      echo "regenerating .env / compose.yaml (setup.conf drifted)" ;;
+    zh-TW:regen)  echo "重新產生 .env.generated / compose.yaml（setup.conf 已變更）" ;;
+    zh-CN:regen)  echo "重新生成 .env.generated / compose.yaml（setup.conf 已变更）" ;;
+    ja:regen)     echo ".env.generated / compose.yaml を再生成中（setup.conf が変更されました）" ;;
+    *:regen)      echo "regenerating .env.generated / compose.yaml (setup.conf drifted)" ;;
   esac
 }
 
 _msg_errors() {
   case "${_LANG}:${1:?}" in
-    zh-TW:no_env)            echo "setup 未產生 .env。" ;;
-    zh-CN:no_env)            echo "setup 未生成 .env。" ;;
-    ja:no_env)               echo "setup が .env を生成しませんでした。" ;;
-    *:no_env)                echo "setup did not produce .env." ;;
+    zh-TW:no_env)            echo "setup 未產生 .env.generated。" ;;
+    zh-CN:no_env)            echo "setup 未生成 .env.generated。" ;;
+    ja:no_env)               echo "setup が .env.generated を生成しませんでした。" ;;
+    *:no_env)                echo "setup did not produce .env.generated." ;;
     zh-TW:rerun_setup)       echo "請改以 './run.sh --setup' 重新執行以開啟編輯器。" ;;
     zh-CN:rerun_setup)       echo "请改以 './run.sh --setup' 重新运行以打开编辑器。" ;;
     ja:rerun_setup)          echo "'./run.sh --setup' で再実行してエディタを開いてください。" ;;
@@ -316,7 +283,7 @@ EOF
   exit 0
 }
 
-# _compose_cleanup tears down the project on shell exit so the container
+# _app_cleanup tears down the project on shell exit so the container
 # and its compose-project default network do not outlive the foreground
 # `./run.sh` session. Installed via `trap ... EXIT` in foreground mode by
 # default (#386); covers normal exit, Ctrl-C, and signal termination.
@@ -338,16 +305,65 @@ EOF
 # redirect is dropped so the planned `[dry-run] docker compose ... down
 # --remove-orphans` line is actually visible — same convention as the
 # rest of `_compose` callers.
-_compose_cleanup() {
+# _app_cleanup
+#
+# run.sh's EXIT trap handler. Runs post-run hook first (container is
+# still alive at this point so the hook can `docker exec` into it),
+# then tears the project down via `compose down`. Hook failure
+# overrides the wrapper exit code but still lets cleanup run --
+# matches the strict-with-cleanup policy decided for #440.
+#
+# Renamed from _compose_cleanup in #440 to reflect that the cleanup
+# scope now covers both the post-hook and compose lifecycle, not
+# just compose. Future expansion (metric flush, log close, etc.)
+# also lands here.
+_app_cleanup() {
+  local _post_rc=0
+  _run_post_hook run "${ORIG_ARGV[@]+"${ORIG_ARGV[@]}"}" || _post_rc=$?
   if [[ "${DRY_RUN:-false}" == true ]]; then
-    COMPOSE_PROFILES='*' _compose_project down --remove-orphans -t 0 || true
+    COMPOSE_PROFILES='*' _compose_dispatch down --remove-orphans -t 0 || true
   else
-    COMPOSE_PROFILES='*' _compose_project down --remove-orphans -t 0 \
+    COMPOSE_PROFILES='*' _compose_dispatch down --remove-orphans -t 0 \
       >/dev/null 2>&1 || true
+  fi
+  if (( _post_rc != 0 )); then
+    exit "${_post_rc}"
   fi
 }
 
+# _compose_dispatch <verb> <args>
+#
+# Single dispatch point for compose invocations from run.sh. When
+# INSTANCE is set, routes through _compose_project_with_overlay so
+# config/instances/${INSTANCE}.{yaml,env} are auto-loaded as compose
+# overlays (#465). Otherwise delegates to plain _compose_project.
+#
+# The wrapper silently skips missing overlay files, so callers do not
+# need to pre-check. INSTANCE was already validated by
+# _validate_instance_name in the --instance arm, so the path
+# interpolation is shell-safe.
+_compose_dispatch() {
+  if [[ -z "${INSTANCE:-}" ]]; then
+    _compose_project "$@"
+    return $?
+  fi
+  local _overlay_yaml="${FILE_PATH}/config/instances/${INSTANCE}.yaml"
+  local _overlay_env="${FILE_PATH}/config/instances/${INSTANCE}.env"
+  if [[ "${QUIET:-0}" != 1 ]]; then
+    [[ -f "${_overlay_yaml}" ]] \
+      && _log_info run run_instance_overlay "display=overlay loaded: ${_overlay_yaml}"
+    [[ -f "${_overlay_env}" ]] \
+      && _log_info run run_instance_overlay "display=overlay loaded: ${_overlay_env}"
+  fi
+  _compose_project_with_overlay "${_overlay_yaml}" "${_overlay_env}" -- "$@"
+}
+
 main() {
+  # #440: keep the wrapper's original argv around so the EXIT trap
+  # (which fires asynchronously and can no longer see main's local $@)
+  # can forward identical "$@" to the post-run hook.
+  ORIG_ARGV=("$@")
+
   # Pre-pass: scan for --lang so usage() (which exits via -h/--help)
   # runs in the requested locale even when --help is the first arg.
   # See build.sh's main() for the full rationale (#222).
@@ -441,6 +457,15 @@ main() {
         ;;
       --instance)
         INSTANCE="${2:?"--instance requires a value"}"
+        # #465: strict char-class rule so the value can be safely
+        # interpolated into config/instances/${INSTANCE}.{yaml,env}.
+        # Reject path traversal etc. up front rather than relying on
+        # silent file-not-found fall-through.
+        if ! _validate_instance_name "${INSTANCE}"; then
+          # #408 sub-task C: invalid --instance value is an argument
+          # error -> exit 2 (POSIX usage-error convention), not 1.
+          exit 2
+        fi
         shift 2
         ;;
       --lang)
@@ -508,7 +533,7 @@ main() {
   # without a .env.
   if [[ "${RUN_SETUP}" == true ]]; then
     _run_interactive
-  elif [[ ! -f "${FILE_PATH}/.env" ]] \
+  elif [[ ! -f "${FILE_PATH}/.env.generated" ]] \
       || [[ ! -f "${FILE_PATH}/config/docker/setup.conf" ]] \
       || [[ ! -f "${FILE_PATH}/compose.yaml" ]]; then
     _log_info run run_bootstrap "display=$(_msg bootstrap info)"
@@ -523,20 +548,28 @@ main() {
   fi
 
   # Defensive: bootstrap must leave .env in place. See build.sh.
-  if [[ ! -f "${FILE_PATH}/.env" ]]; then
+  if [[ ! -f "${FILE_PATH}/.env.generated" ]]; then
     _log_err  run run_no_env "display=$(_msg errors no_env)"
     _log_info run run_rerun_setup "display=$(_msg errors rerun_setup)"
     exit 1
   fi
 
   # Load .env, derive PROJECT_NAME (sets/exports INSTANCE_SUFFIX too).
-  _load_env "${FILE_PATH}/.env"
+  _load_env "${FILE_PATH}/.env.generated"
   _compute_project_name "${INSTANCE}"
 
   # Pre-run snapshot so the user can see which files + values this
   # invocation resolved to before the container replaces the shell.
   # Mute with QUIET=1 for piped / CI logs.
   [[ "${QUIET:-0}" != "1" ]] && _print_config_summary run
+
+  # ── #440: pre-run hook (after env prep, before build delegate) ──
+  # Fires once env validation + drift resolution + config summary are
+  # done but BEFORE the image-check / build delegate, so a hook that
+  # needs to set up host state required by build (e.g. binfmt
+  # registration for cross-arch images on jetson_sdk_manager) can do
+  # its work before docker build runs. Skipped under --dry-run.
+  _run_pre_hook run "${ORIG_ARGV[@]+"${ORIG_ARGV[@]}"}" || exit $?
 
   # ── #216 / #429: auto-build gate ──
   # When the target image is missing locally, delegate to build.sh
@@ -620,33 +653,40 @@ ${_parallel}"
   # ... down --remove-orphans" line is visible in the planned-action
   # output (no real teardown happens — _compose honors DRY_RUN).
   if [[ "${DETACH}" != true && "${NO_RM}" != true ]]; then
-    trap _compose_cleanup EXIT
+    trap _app_cleanup EXIT
   fi
 
   if [[ "${DETACH}" == true ]]; then
-    _compose_project down 2>/dev/null || true
-    _compose_project up -d "${TARGET}"
+    _compose_dispatch down 2>/dev/null || true
+    _compose_dispatch up -d "${TARGET}"
+    # #537: detached installs no foreground EXIT trap, so the post-run hook
+    # (#440) would never fire. Run it directly here -- the container is up,
+    # so the hook can `docker exec` / `docker cp` into it. Decoupled from
+    # `compose down`: the -d lifecycle is user-managed (no teardown). Hook
+    # failure surfaces as a non-zero exit, matching the foreground trap.
+    _run_post_hook run "${ORIG_ARGV[@]+"${ORIG_ARGV[@]}"}" || exit $?
   elif [[ "${TARGET}" == "devel" ]]; then
     # Foreground devel: `up -d` + `exec` so a second terminal can join via
     # `./exec.sh`. CMD_ARGS passthrough: empty → `bash` (matches
     # Dockerfile CMD for devel); non-empty → override
     # (e.g. `./run.sh ls /tmp`). Exit cleanup handled by the
-    # centrally-installed `trap _compose_cleanup EXIT` above (#386).
-    _compose_project up -d "${TARGET}"
+    # centrally-installed `trap _app_cleanup EXIT` above (#386, #440, #465).
+    _compose_dispatch up -d "${TARGET}"
     if (( ${#CMD_ARGS[@]} > 0 )); then
-      _compose_project exec "${TARGET}" "${CMD_ARGS[@]}"
+      _compose_dispatch exec "${TARGET}" "${CMD_ARGS[@]}"
     else
-      _compose_project exec "${TARGET}" bash
+      _compose_dispatch exec "${TARGET}" bash
     fi
   else
-    # Other one-shot stages (runtime, test, ...): `compose run --rm` with
-    # CMD passthrough. Empty CMD_ARGS → service's Dockerfile CMD runs
-    # (e.g. runtime auto-boots parameter_bridge). Non-empty overrides
-    # (e.g. `./run.sh -t runtime bash` to debug interactively).
+    # Other one-shot stages (runtime, test, ...): unified to `compose up`
+    # so the container_name: directive (#215, #322, #335) takes effect.
+    # Empty CMD_ARGS → foreground `up`, Dockerfile CMD runs. Non-empty
+    # CMD_ARGS → `up -d` + `exec` for interactive override. Closes #458.
     if (( ${#CMD_ARGS[@]} > 0 )); then
-      _compose_project run --rm "${TARGET}" "${CMD_ARGS[@]}"
+      _compose_dispatch up -d "${TARGET}"
+      _compose_dispatch exec "${TARGET}" "${CMD_ARGS[@]}"
     else
-      _compose_project run --rm "${TARGET}"
+      _compose_dispatch up "${TARGET}"
     fi
   fi
 }

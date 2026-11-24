@@ -54,8 +54,8 @@ _create_symlinks() {
   _log "Creating symlinks:"
   # #330: the seven user-facing wrappers live under script/ now, with
   # link targets relative to the link's directory ("../" prefix).
-  # Root keeps `Makefile` as the elevated user entry; flag / sub-cmd
-  # forwarding is documented in script/docker/Makefile itself.
+  # #546: the root user entry is the `justfile` (the container-ops
+  # Makefile was retired); recipes forward to ./script/<verb>.sh.
   mkdir -p script
   _symlink "../${TEMPLATE_REL}/script/docker/wrapper/build.sh" "script/build.sh"
   _symlink "../${TEMPLATE_REL}/script/docker/wrapper/run.sh" "script/run.sh"
@@ -69,14 +69,20 @@ _create_symlinks() {
   # [[ -L X ]] guard makes the loop idempotent on already-migrated
   # repos and silent on very old forks that never carried setup.sh /
   # setup_tui.sh at root.
+  # Migration hygiene also drops the retired root `Makefile` symlink
+  # (#546 / ADR-00000005 phase 2): base no longer ships a container-ops
+  # Makefile, so an upgrading repo's stale root symlink must go or it
+  # dangles. (`Makefile.ci` is unrelated and never lived at root.)
   local _stale
-  for _stale in build.sh run.sh exec.sh stop.sh prune.sh setup.sh setup_tui.sh tui.sh; do
+  for _stale in build.sh run.sh exec.sh stop.sh prune.sh setup.sh setup_tui.sh tui.sh Makefile; do
     if [[ -L "${_stale}" ]]; then
       rm -f "${_stale}"
-      _log "  Removed stale root symlink ${_stale} (moved to script/)"
+      _log "  Removed stale root symlink ${_stale}"
     fi
   done
-  _symlink "${TEMPLATE_REL}/script/docker/Makefile" "Makefile"
+  # ADR-00000005: `just` is the user-facing entry. justfile sits at root
+  # with the direct .base/ target. (The Makefile was retired in #546.)
+  _symlink "${TEMPLATE_REL}/script/docker/justfile" "justfile"
 
   if [[ ! -f .hadolint.yaml ]] \
     || diff -q .hadolint.yaml "${TEMPLATE_REL}/.hadolint.yaml" \
@@ -258,8 +264,11 @@ YAML
 
   # .gitignore: source canonical set from lib/gitignore.sh so future
   # template-added derived artifacts propagate via the existing-repo
-  # sync path on next upgrade (#172).
+  # sync path on next upgrade (#172). #402 PR-B adds the [logging]
+  # local_path managed block here so new repos start with the right
+  # entries without waiting for the first setup.sh apply.
   _sync_gitignore "${REPO_ROOT}/.gitignore"
+  _sync_logging_gitignore "${REPO_ROOT}"
   _log "  Created .gitignore"
 
   # doc/
@@ -311,6 +320,10 @@ MD
 - Initial release
 MD
   _log "  Created doc/changelog/CHANGELOG.md"
+
+  # #440: hook scaffolding under script/hooks/{pre,post}/.
+  _create_hook_stubs
+  _log "  Created script/hooks/{pre,post}/ stubs"
 }
 
 # ── Existing repo initialization ────────────────────────────────────────────
@@ -319,6 +332,44 @@ _init_existing_repo() {
   _log "Existing repo detected (Dockerfile found)"
   _create_symlinks
   _sync_existing_gitignore
+  # #440: ensure the pre/post hook scaffolding exists. Idempotent;
+  # already-present stubs are left untouched. Upgrades from pre-#440
+  # templates pick up the 14 stubs automatically here.
+  _create_hook_stubs
+}
+
+# _create_hook_stubs
+#   Creates 14 stub files (7 wrappers x 2 phases) under
+#   script/hooks/{pre,post}/. Idempotent: never overwrites an
+#   existing file (so user-authored hooks survive re-init / upgrade).
+#   All freshly-written stubs land with mode 755 so the
+#   non-executable hard-fail path in lib/hook.sh never trips
+#   spuriously on a fresh init (#440).
+_create_hook_stubs() {
+  mkdir -p "${REPO_ROOT}/script/hooks/pre" "${REPO_ROOT}/script/hooks/post"
+  local _wrapper _kind _file _verb _abort
+  for _kind in pre post; do
+    if [[ "${_kind}" == "pre" ]]; then
+      _verb="before"
+      _abort="aborts the wrapper"
+    else
+      _verb="after"
+      _abort="fails the wrapper with this rc"
+    fi
+    for _wrapper in build run exec stop prune setup setup_tui; do
+      _file="${REPO_ROOT}/script/hooks/${_kind}/${_wrapper}.sh"
+      [[ -e "${_file}" ]] && continue
+      cat > "${_file}" <<HOOK
+#!/usr/bin/env bash
+# ${_kind}-${_wrapper} hook: host-side, runs ${_verb} ${_wrapper}.sh main logic.
+# Receives the same "\$@" as ${_wrapper}.sh. Non-zero exit ${_abort}.
+# Replace \`exit 0\` with your steps (binfmt register, mount dir prep, etc.).
+# Skipped when ./{$_wrapper}.sh runs with --dry-run.
+exit 0
+HOOK
+      chmod 755 "${_file}"
+    done
+  done
 }
 
 # _sync_existing_gitignore
@@ -329,6 +380,11 @@ _init_existing_repo() {
 _sync_existing_gitignore() {
   _sync_gitignore "${REPO_ROOT}/.gitignore"
   _untrack_canonical_in_repo "${REPO_ROOT}"
+  # #402 PR-B: rebuild the [logging] local_path managed block from the
+  # current setup.conf. Used to live in setup.sh apply (runtime); now
+  # tied to init/upgrade lifecycle so the file stays consistent even
+  # when setup.conf changed between wrapper invocations.
+  _sync_logging_gitignore "${REPO_ROOT}"
 }
 
 # ── Generate per-repo setup.conf ────────────────────────────────────────────
