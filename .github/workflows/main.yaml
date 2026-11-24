@@ -32,8 +32,8 @@ jobs:
               echo "::error::base ref '${ref}' does not match .base/.version '${expected}'"
               status=1
             fi
-          done < <(grep -rhoE 'uses:[[:space:]]*ycpss91255-lab/base/[^@]+@v[0-9]+\.[0-9]+\.[0-9]+' .github/workflows/*.yaml \
-                     | grep -oE '@v[0-9]+\.[0-9]+\.[0-9]+' | sed 's/^@//' | sort -u)
+          done < <(grep -rhoE 'uses:[[:space:]]*ycpss91255-lab/base/[^@]+@v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?' .github/workflows/*.yaml \
+                     | grep -oE '@v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?' | sed 's/^@//' | sort -u)
           if [ "${status}" -ne 0 ]; then
             echo "Bump the @vX.Y.Z refs in .github/workflows/*.yaml to match .base/.version."
           fi
