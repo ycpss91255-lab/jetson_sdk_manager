@@ -1,0 +1,125 @@
+[[image.rules]]
+rule = "string:jetson_sdk_manager"
+
+[[image.rules]]
+rule = "prefix:docker_"
+
+[[image.rules]]
+rule = "suffix:_ws"
+
+[[image.rules]]
+rule = "@basename"
+
+[build]
+target_arch = ""
+network = "auto"
+
+[[build.args]]
+key = "APT_MIRROR_UBUNTU"
+value = "tw.archive.ubuntu.com"
+
+[[build.args]]
+key = "APT_MIRROR_DEBIAN"
+value = "mirror.twds.com.tw"
+
+[[build.args]]
+key = "TZ"
+value = "Asia/Taipei"
+
+[[build.args]]
+key = "BASE_IMAGE"
+value = "ubuntu:22.04"
+
+[deploy]
+gpu_mode = "auto"
+gpu_count = "all"
+gpu_capabilities = "gpu compute utility graphics"
+gpu_runtime = "auto"
+
+[gui]
+mode = "auto"
+
+[network]
+mode = "host"
+ipc = "host"
+network_name = ""
+ports = []
+
+[security]
+privileged = true
+cap_drop = []
+
+[[security.cap_add]]
+cap = "SYS_ADMIN"
+
+[[security.cap_add]]
+cap = "NET_ADMIN"
+
+[[security.cap_add]]
+cap = "MKNOD"
+
+[[security.security_opt]]
+opt = "seccomp:unconfined"
+
+[resources]
+shm_size = ""
+
+[environment]
+env_1 = "JETSON_ALLOW_NON_UNIX_FS=${JETSON_ALLOW_NON_UNIX_FS:-0}"
+env_2 = "INITRD_FLASH_TIMEOUT=${INITRD_FLASH_TIMEOUT:-600}"
+
+[devices]
+cgroup_rules = []
+
+[[devices.bindings]]
+path = "/dev:/dev:rslave"
+
+[[volumes]]
+source = "${WS_PATH}"
+target = "/home/${USER_NAME}/work"
+
+[[volumes]]
+source = "/media/${USER}"
+target = "/media/nvidia"
+
+[[volumes]]
+source = "./data/nvsdkm"
+target = "/home/${USER_NAME}/.nvsdkm"
+
+[[volumes]]
+source = "./data/downloads"
+target = "/home/${USER_NAME}/Downloads/nvidia/sdkm_downloads"
+
+[[volumes]]
+source = "./data/nvidia_sdk"
+target = "/home/${USER_NAME}/nvidia/nvidia_sdk"
+
+[[volumes]]
+source = "./data/jetson_l4t"
+target = "/srv/jetson_l4t"
+
+[[volumes]]
+source = "./jetson.yaml"
+target = "/etc/jetson.yaml"
+mode = "ro"
+
+[[volumes]]
+source = "/run/rpcbind"
+target = "/run/rpcbind"
+
+[[volumes]]
+source = "/run/rpcbind.sock"
+target = "/run/rpcbind.sock"
+
+[[volumes]]
+source = "/run/dbus/system_bus_socket"
+target = "/run/dbus/system_bus_socket"
+mode = "ro"
+
+[logging]
+driver = "json-file"
+max_size = "10m"
+max_file = 3
+compress = true
+local_path = "./log/"
+
