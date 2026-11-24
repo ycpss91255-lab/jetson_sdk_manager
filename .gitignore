@@ -12,3 +12,5 @@ coverage/
 data/
 # managed by template: [logging] local_path (do not remove)
 /log/
+
+.env.generated
