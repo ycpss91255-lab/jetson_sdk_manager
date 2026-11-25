@@ -32,7 +32,7 @@ setup() {
         "${TMP_REPO}/.base/script/docker/lib/_lib.sh"
   ln -s /source/script/docker/lib/i18n.sh \
         "${TMP_REPO}/.base/script/docker/lib/i18n.sh"
-  for _sl in log env conf compose config_summary; do
+  for _sl in log env conf conf_logging compose config_summary hook; do
     ln -s "/source/script/docker/lib/${_sl}.sh" \
           "${TMP_REPO}/.base/script/docker/lib/${_sl}.sh"
   done
@@ -53,7 +53,7 @@ EOF
   for _f in build.sh run.sh exec.sh stop.sh setup.sh setup_tui.sh; do
     : > "${TMP_REPO}/.base/script/docker/wrapper/${_f}"
   done
-  : > "${TMP_REPO}/.base/script/docker/Makefile"
+  : > "${TMP_REPO}/.base/script/docker/justfile"
   : > "${TMP_REPO}/.base/.hadolint.yaml"
 
   cd "${TMP_REPO}"
@@ -215,7 +215,7 @@ REMOTE
 # _create_symlinks
 # ════════════════════════════════════════════════════════════════════
 
-@test "_create_symlinks: places 7 wrapper symlinks under script/, Makefile stays at root (#330)" {
+@test "_create_symlinks: places 7 wrapper symlinks under script/ (#330)" {
   _source_init
   _create_symlinks
   # Seven wrappers under script/ with ../.base/script/docker/wrapper/<name>.sh targets.
@@ -226,10 +226,31 @@ REMOTE
     # And must NOT exist at root.
     assert [ ! -e "${TMP_REPO}/${_f}" ]
   done
-  # Makefile keeps the root location with the direct .base/ target.
-  assert [ -L "${TMP_REPO}/Makefile" ]
-  run readlink "${TMP_REPO}/Makefile"
-  assert_output ".base/script/docker/Makefile"
+  # #546: the root user entry is the justfile, not a Makefile.
+  assert [ -L "${TMP_REPO}/justfile" ]
+  assert [ ! -e "${TMP_REPO}/Makefile" ]
+}
+
+@test "_create_symlinks: places justfile at root with the direct .base/ target (#545)" {
+  _source_init
+  _create_symlinks
+  # ADR-00000005: just is the new user-facing entry; the justfile symlink
+  # sits at root (like Makefile) so `just <verb>` runs from the repo root.
+  assert [ -L "${TMP_REPO}/justfile" ]
+  run readlink "${TMP_REPO}/justfile"
+  assert_output ".base/script/docker/justfile"
+}
+
+@test "_create_symlinks: does NOT symlink Makefile and cleans a stale root Makefile symlink (#546)" {
+  # ADR-00000005 phase 2: the Makefile is retired in favour of `just`.
+  # _create_symlinks must no longer create a root Makefile, and an
+  # upgrading repo's pre-existing root Makefile symlink must be dropped
+  # (init.sh resync) so it does not dangle once .base/ no longer ships one.
+  _source_init
+  ln -sf ".base/script/docker/Makefile" "${TMP_REPO}/Makefile"   # legacy symlink from an older base
+  _create_symlinks
+  assert [ ! -e "${TMP_REPO}/Makefile" ]
+  assert [ ! -L "${TMP_REPO}/Makefile" ]
 }
 
 @test "_create_symlinks: replaces a stale file at the new symlink path under script/ (#330)" {
@@ -354,13 +375,13 @@ REMOTE
   # Companion to the auto-detect test above: when TEMPLATE_REL is `.base`,
   # `_create_symlinks` must wire script/build.sh -> ../.base/script/docker/wrapper/build.sh
   # (sub-folder link target is relative to the link's directory), and
-  # Makefile / .hadolint.yaml at root keep the direct .base/ target.
+  # justfile / .hadolint.yaml at root keep the direct .base/ target.
   source "${TMP_REPO}/.base/init.sh"
   _create_symlinks
   run readlink "${TMP_REPO}/script/build.sh"
   assert_output "../.base/script/docker/wrapper/build.sh"
-  run readlink "${TMP_REPO}/Makefile"
-  assert_output ".base/script/docker/Makefile"
+  run readlink "${TMP_REPO}/justfile"
+  assert_output ".base/script/docker/justfile"
   run readlink "${TMP_REPO}/.hadolint.yaml"
   assert_output ".base/.hadolint.yaml"
 }
@@ -376,4 +397,64 @@ REMOTE
   assert_success
   run grep -Fxq .env.bak "${TMP_REPO}/.gitignore"
   assert_success
+}
+
+# ════════════════════════════════════════════════════════════════════
+# #440: _create_hook_stubs — 14 stubs (7 wrappers x 2 phases)
+# ════════════════════════════════════════════════════════════════════
+
+@test "_create_hook_stubs: creates script/hooks/{pre,post}/ with 14 stubs (#440)" {
+  _source_init
+  _create_hook_stubs
+  local _kind _wrapper _file
+  for _kind in pre post; do
+    for _wrapper in build run exec stop prune setup setup_tui; do
+      _file="${TMP_REPO}/script/hooks/${_kind}/${_wrapper}.sh"
+      [[ -f "${_file}" ]] || { echo "missing ${_file}"; return 1; }
+      [[ -x "${_file}" ]] || { echo "not executable: ${_file}"; return 1; }
+    done
+  done
+}
+
+@test "_create_hook_stubs: each stub starts with shebang and ends with exit 0 (#440)" {
+  _source_init
+  _create_hook_stubs
+  local _file
+  for _file in "${TMP_REPO}/script/hooks/pre/run.sh" \
+               "${TMP_REPO}/script/hooks/post/build.sh"; do
+    run head -n 1 "${_file}"
+    assert_output "#!/usr/bin/env bash"
+    run tail -n 1 "${_file}"
+    assert_output "exit 0"
+  done
+}
+
+@test "_create_hook_stubs: idempotent — preserves user-modified stub on re-run (#440)" {
+  _source_init
+  _create_hook_stubs
+  local _file="${TMP_REPO}/script/hooks/pre/run.sh"
+  # Simulate user editing their hook
+  printf '#!/usr/bin/env bash\necho USER_CONTENT\nexit 0\n' > "${_file}"
+  chmod +x "${_file}"
+  # Re-run init's stub creator
+  _create_hook_stubs
+  run grep -F "USER_CONTENT" "${_file}"
+  assert_success
+}
+
+@test "_create_new_repo: includes hook stubs in new-repo layout (#440)" {
+  _source_init
+  _create_new_repo "main"
+  [[ -x "${TMP_REPO}/script/hooks/pre/run.sh" ]] || { echo "missing pre/run.sh"; return 1; }
+  [[ -x "${TMP_REPO}/script/hooks/post/run.sh" ]] || { echo "missing post/run.sh"; return 1; }
+}
+
+@test "_init_existing_repo: creates missing hook stubs on upgrade (#440)" {
+  _source_init
+  # Simulate an existing repo on pre-#440 template — no hooks/ dir yet
+  [[ ! -d "${TMP_REPO}/script/hooks" ]] || rm -rf "${TMP_REPO}/script/hooks"
+  : > "${TMP_REPO}/Dockerfile"   # mark as "existing repo"
+  _init_existing_repo
+  [[ -x "${TMP_REPO}/script/hooks/pre/build.sh" ]] || { echo "missing pre/build.sh after upgrade"; return 1; }
+  [[ -x "${TMP_REPO}/script/hooks/post/setup_tui.sh" ]] || { echo "missing post/setup_tui.sh after upgrade"; return 1; }
 }
