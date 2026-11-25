@@ -281,6 +281,10 @@ COPY --chmod=0755 script/clean.sh /opt/jetson_install/clean.sh
 # ./jetson entry point (#95) — copied so jetson_cli.bats runs here too.
 COPY --chmod=0755 script/jetson.sh /opt/jetson_install/jetson.sh
 COPY --chmod=0755 script/lib /opt/jetson_install/lib
+# Repo snapshot for base_contract.bats: what the scripts call and the
+# setup.toml keys whose base default is unsafe here (restart policy).
+COPY script /opt/repo/script
+COPY setup.toml /opt/repo/setup.toml
 
 # Smoke test (shared from template + repo-specific)
 COPY .base/dist/test/bats/smoke/shared/ /smoke_test/

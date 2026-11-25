@@ -123,7 +123,7 @@ volume_assert_match() {
         --category volume-mismatch \
         --detail "Volume jetson_l4t was prepared for a different JetPack/board than jetson.yaml asks for" \
         --action "Run \`./script/clean.sh l4t\` to wipe the volume" \
-        --action "Re-run \`make run -- -t prepare\` to rebuild from scratch"
+        --action "Re-run \`just docker run -t prepare\` to rebuild from scratch"
       return 1
       ;;
   esac

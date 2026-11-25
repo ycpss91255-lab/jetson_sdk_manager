@@ -41,8 +41,8 @@ print_banner() {
     "${CYAN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}" \
     '' \
     "${BOLD}Supported default is factory flash:${RESET}" \
-    '    make run -- -t prepare     # downloads BSP + builds flash images' \
-    '    make run -- -t flash       # writes images to a Jetson in APX recovery' \
+    '    just docker run -t prepare     # downloads BSP + builds flash images' \
+    '    just docker run -t flash       # writes images to a Jetson in APX recovery' \
     '' \
     "${YELLOW}For a GUI flash (best-effort), first do these on the host:${RESET}" \
     '    ./script/host_setup.sh             # qemu + nfsd + USB + /srv bridge' \

@@ -34,7 +34,7 @@ case "${fstype}" in
 setuid + root-owned files apply_binaries.sh writes. Nothing to fix by
 hand: ./script/host_setup.sh (step 0) will create data/jetson_l4t.img
 (ext4, inside this repo) and loop-mount it over data/jetson_l4t/.
-Run it before \`make run -- -t prepare\`. See README "Prerequisites".
+Run it before \`just docker run -t prepare\`. See README "Prerequisites".
 
 EOF
     ;;

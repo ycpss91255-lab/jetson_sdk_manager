@@ -16,9 +16,9 @@
 # flash-scoped toggle, not a permanent rule.
 #
 # Usage:
-#   ./script/nm_flash_guard.sh disable        # before `make run -- -t flash`
+#   ./script/nm_flash_guard.sh disable        # before `just docker run -t flash`
 #   ./script/nm_flash_guard.sh enable         # after flashing, to reach the board
-#   ./script/nm_flash_guard.sh around make run -- -t flash
+#   ./script/nm_flash_guard.sh around just docker run -t flash
 #                                             # disable, run the cmd, enable on exit
 #   ./script/nm_flash_guard.sh auto [timeout] # disable, then re-enable the
 #                                             # moment the board boots (0955:7020),

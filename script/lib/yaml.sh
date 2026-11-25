@@ -26,7 +26,7 @@ yaml_get() {
     emit_error \
       --category validate \
       --detail "yaml_get: file not found: ${file}" \
-      --action "Mount jetson.yaml at ${JETSON_YAML} via setup.conf [volumes]" \
+      --action "Mount jetson.yaml at ${JETSON_YAML} via setup.toml [[volumes]]" \
       --action "Run \`./script/setup.sh apply\` to regenerate compose.yaml"
     return 1
   fi

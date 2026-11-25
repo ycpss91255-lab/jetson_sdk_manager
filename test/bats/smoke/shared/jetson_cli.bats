@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 #
 # Integration tests for script/jetson.sh — the one-command entry point (#95).
-# Everything it drives (make, host_setup.sh, nm_flash_guard.sh, lsusb, sudo,
+# Everything it drives (run.sh, host_setup.sh, nm_flash_guard.sh, lsusb, sudo,
 # host_teardown.sh, clean.sh) is stubbed on PATH / via *_BIN overrides and
 # records its argv, so the tests assert sequencing and gates, not behaviour
 # that belongs to the underlying scripts.
@@ -25,7 +25,7 @@ setup() {
   STUB_BIN="${BATS_TEST_TMPDIR}/stub-bin"
   mkdir -p "${STUB_BIN}"
   # Every stub appends "<name> <argv>" to one log so ORDER is observable.
-  for name in make lsusb sudo; do
+  for name in lsusb sudo; do
     cat >"${STUB_BIN}/${name}" <<EOF
 #!/usr/bin/env bash
 printf '${name} %s\n' "\$*" >>"\${CALLS}"
@@ -47,7 +47,7 @@ EOF
   export PATH="${STUB_BIN}:${PATH}"
 
   # Sibling scripts jetson.sh calls by path: point them at loggers.
-  for s in host_setup.sh init_data_dirs.sh nm_flash_guard.sh usb_ss_guard.sh host_teardown.sh clean.sh; do
+  for s in host_setup.sh init_data_dirs.sh nm_flash_guard.sh usb_ss_guard.sh host_teardown.sh clean.sh run.sh; do
     cat >"${BATS_TEST_TMPDIR}/${s}" <<EOF
 #!/usr/bin/env bash
 printf '${s} %s\n' "\$*" >>"\${CALLS}"
@@ -60,6 +60,9 @@ EOF
   export USB_SS_GUARD_BIN="${BATS_TEST_TMPDIR}/usb_ss_guard.sh"
   export HOST_TEARDOWN_BIN="${BATS_TEST_TMPDIR}/host_teardown.sh"
   export CLEAN_BIN="${BATS_TEST_TMPDIR}/clean.sh"
+  # The repo's container wrapper. `make` is deliberately NOT stubbed: the base
+  # upgrade removed the Makefile, so any call to it must fail here too.
+  export RUN_BIN="${BATS_TEST_TMPDIR}/run.sh"
 
   # Repo skeleton with a completed prepare (images phase recorded).
   export L4T_REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
@@ -130,31 +133,31 @@ EOF
 
 # ── flash ────────────────────────────────────────────────────────────
 
-@test "flash fails fast when no Jetson is in recovery and never touches make or NM" {
+@test "flash fails fast when no Jetson is in recovery and never touches run.sh or NM" {
   LSUSB_OUT="${BOOTED}" run "${JETSON}" flash
   assert_failure
   assert_output --partial 'wait-rec'
   run cat "${CALLS}"
-  refute_output --partial 'make'
+  refute_output --partial 'run.sh'
   refute_output --partial 'nm_flash_guard'
 }
 
-@test "flash with a board in recovery guards NM, then runs make run -t flash, then prints the ssh hint" {
+@test "flash with a board in recovery guards NM, then runs run.sh -t flash, then prints the ssh hint" {
   LSUSB_OUT="${REC}" run "${JETSON}" flash
   assert_success
   assert_output --partial '192.168.55.1'
   run grep -vE '^(lsusb|sudo|exportfs)' "${CALLS}"
   assert_line --index 0 'nm_flash_guard.sh auto'
-  assert_line --index 2 'make run -- -t flash'
+  assert_line --index 2 'run.sh -t flash'
 }
 
-@test "flash order is nm_flash_guard auto → usb_ss_guard auto → make run -t flash (#100)" {
+@test "flash order is nm_flash_guard auto → usb_ss_guard auto → run.sh -t flash (#100)" {
   LSUSB_OUT="${REC}" run "${JETSON}" flash
   assert_success
   run grep -vE '^(lsusb|sudo|exportfs)' "${CALLS}"
   assert_line --index 0 'nm_flash_guard.sh auto'
   assert_line --index 1 'usb_ss_guard.sh auto'
-  assert_line --index 2 'make run -- -t flash'
+  assert_line --index 2 'run.sh -t flash'
 }
 
 @test "flash refuses when prepare has not recorded the images phase" {
@@ -163,7 +166,7 @@ EOF
   assert_failure
   assert_output --partial 'prepare'
   run cat "${CALLS}"
-  refute_output --partial 'make'
+  refute_output --partial 'run.sh'
 }
 
 # ── wait-rec ─────────────────────────────────────────────────────────
@@ -189,23 +192,23 @@ EOF
 
 # ── prepare ──────────────────────────────────────────────────────────
 
-@test "prepare validates sudo once, then host_setup → init_data_dirs → make run -t prepare" {
+@test "prepare validates sudo once, then host_setup → init_data_dirs → run.sh -t prepare" {
   LSUSB_OUT="${REC}" run "${JETSON}" prepare
   assert_success
   run grep -v '^lsusb' "${CALLS}"                     # the recovery preflight probes first (#97)
   assert_line --index 0 --regexp '^sudo (-n )?-v$'   # -n when there is no tty
   assert_line --index 1 'host_setup.sh '
   assert_line --index 2 'init_data_dirs.sh '
-  assert_line --index 3 'make run -- -t prepare'
+  assert_line --index 3 'run.sh -t prepare'
 }
 
-@test "prepare stops when host_setup fails and never reaches make" {
+@test "prepare stops when host_setup fails and never reaches run.sh" {
   printf '#!/usr/bin/env bash\nexit 1\n' >"${HOST_SETUP_BIN}"
   LSUSB_OUT="${REC}" run "${JETSON}" prepare
   assert_failure
   assert_output --partial 'host_setup'
   run cat "${CALLS}"
-  refute_output --partial 'make'
+  refute_output --partial 'run.sh'
 }
 
 # ── all ──────────────────────────────────────────────────────────────
@@ -218,14 +221,14 @@ EOF
   run grep -vE '^(lsusb|sudo|exportfs)' "${CALLS}"
   assert_line --index 0 'host_setup.sh '
   assert_line --index 1 'init_data_dirs.sh '
-  assert_line --index 2 'make run -- -t prepare'
+  assert_line --index 2 'run.sh -t prepare'
   assert_line --index 3 'nm_flash_guard.sh auto'
   assert_line --index 4 'usb_ss_guard.sh auto'
-  assert_line --index 5 'make run -- -t flash'
+  assert_line --index 5 'run.sh -t flash'
 }
 
 @test "all stops after a failed prepare and tells the user how to resume" {
-  printf '#!/usr/bin/env bash\nprintf "make %s\\n" "$*" >>"${CALLS}"; exit 1\n' >"${STUB_BIN}/make"
+  printf '#!/usr/bin/env bash\nprintf "run.sh %s\\n" "$*" >>"${CALLS}"; exit 1\n' >"${RUN_BIN}"
   WAIT_REC_INTERVAL=0.05 LSUSB_REC_AFTER=1 run "${JETSON}" all
   assert_failure
   assert_output --partial './jetson prepare'
@@ -290,7 +293,7 @@ EOF
   assert_output --partial '2 Jetsons in recovery'
   run cat "${CALLS}"
   refute_output --partial 'nm_flash_guard'
-  refute_output --partial 'make'
+  refute_output --partial 'run.sh'
 }
 
 @test "wait-rec times out on wall-clock time even when the interval is longer than the timeout" {
@@ -309,18 +312,17 @@ EOF
 }
 
 @test "all: a Ctrl-C during flash is not reported as 'wait-rec interrupted' (trap restored)" {
-  # make stub for flash: deliver INT to jetson.sh itself (the grandparent —
-  # make runs inside a "(cd && make)" subshell) and die of INT so bash
+  # run.sh stub for flash: deliver INT to jetson.sh itself (the grandparent —
+  # run.sh runs inside a "(cd && run.sh)" subshell) and die of INT so bash
   # propagates the signal up the wait chain like a real Ctrl-C would.
-  cat >"${STUB_BIN}/make" <<'EOF'
+  cat >"${RUN_BIN}" <<'EOF'
 #!/usr/bin/env bash
-printf 'make %s\n' "$*" >>"${CALLS}"
+printf 'run.sh %s\n' "$*" >>"${CALLS}"
 if [[ "$*" == *"-t flash"* ]]; then
   gp=$(awk '{print $4}' "/proc/${PPID}/stat")
   kill -INT "${gp}"; kill -INT "$$"; sleep 1
 fi
 EOF
-  chmod +x "${STUB_BIN}/make"
   WAIT_REC_INTERVAL=0.05 LSUSB_REC_AFTER=1 run "${JETSON}" all
   assert_failure
   refute_output --partial 'wait-rec interrupted'
@@ -341,7 +343,7 @@ EOF
   assert_failure
   assert_output --partial 'more than one'
   run cat "${CALLS}"
-  refute_output --partial 'make'
+  refute_output --partial 'run.sh'
 }
 
 @test "commands that take no arguments reject extra ones with exit 2" {
@@ -373,7 +375,7 @@ EOF
   assert_output --partial 'Hold the REC button'
   assert_output --partial 'board spec'
   run cat "${CALLS}"
-  refute_output --partial 'make'
+  refute_output --partial 'run.sh'
   refute_output --partial 'host_setup'
 }
 
@@ -381,7 +383,7 @@ EOF
   LSUSB_OUT="${BOOTED}" run "${JETSON}" prepare --no-board
   assert_success
   run cat "${CALLS}"
-  assert_output --partial 'make run -- -t prepare'
+  assert_output --partial 'run.sh -t prepare'
 }
 
 @test "prepare with the board in recovery proceeds" {
@@ -397,10 +399,10 @@ EOF
   assert_output --partial '[3/3] flash'
   run grep -vE '^(lsusb|sudo|exportfs)' "${CALLS}"
   assert_line --index 0 'host_setup.sh '
-  assert_line --index 2 'make run -- -t prepare'
+  assert_line --index 2 'run.sh -t prepare'
   assert_line --index 3 'nm_flash_guard.sh auto'
   assert_line --index 4 'usb_ss_guard.sh auto'
-  assert_line --index 5 'make run -- -t flash'
+  assert_line --index 5 'run.sh -t flash'
 }
 
 @test "flash validates sudo once before the NetworkManager guard (nm_flash_guard needs root)" {
@@ -427,7 +429,7 @@ EOF
   assert_line --index 7 'exportfs -f'
   assert_line --index 8 'nm_flash_guard.sh auto'
   assert_line --index 9 'usb_ss_guard.sh auto'
-  assert_line --index 10 'make run -- -t flash'
+  assert_line --index 10 'run.sh -t flash'
 }
 
 @test "flash stops before the NM guard when the host export fails (rootfs missing behind the bridge)" {
@@ -437,7 +439,7 @@ EOF
   assert_output --partial 'Error [host-config]'
   run cat "${CALLS}"
   refute_output --partial 'nm_flash_guard'
-  refute_output --partial 'make'
+  refute_output --partial 'run.sh'
 }
 
 @test "status warns when a host rpc.mountd runs but the L4T tree is not exported — the #101 hang" {
@@ -473,4 +475,77 @@ EOF
   assert_success
   refute_output --partial 'not exporting'
   assert_output --partial 'container serves NFS'
+}
+
+# ── script/run.sh instead of the removed Makefile ────────
+
+@test "flash propagates run.sh's exit code and does not claim success" {
+  printf '#!/usr/bin/env bash\nexit 42\n' >"${RUN_BIN}"
+  LSUSB_OUT="${REC}" run "${JETSON}" flash
+  assert_failure 42
+  refute_output --partial 'flash — done'
+  refute_output --partial '192.168.55.1'
+}
+
+@test "prepare and flash call run.sh from the repo root whatever the caller's cwd" {
+  printf '#!/usr/bin/env bash\nprintf "run.sh cwd=%%s\\n" "${PWD}" >>"${CALLS}"\n' >"${RUN_BIN}"
+  local root; root="$(cd "$(dirname "${JETSON}")/.." && pwd)"
+  cd "${BATS_TEST_TMPDIR}"
+  LSUSB_OUT="${REC}" run "${JETSON}" prepare
+  assert_success
+  LSUSB_OUT="${REC}" run "${JETSON}" flash
+  assert_success
+  run grep -c -x "run.sh cwd=${root}" "${CALLS}"
+  assert_output '2'
+}
+
+@test "RUN_BIN defaults to the run.sh next to jetson.sh" {
+  local copy="${BATS_TEST_TMPDIR}/clone"
+  mkdir -p "${copy}/script"
+  cp -r "$(dirname "${JETSON}")/lib" "${JETSON}" "${copy}/script/"
+  printf '#!/usr/bin/env bash\nprintf "default run.sh %%s\\n" "$*" >>"${CALLS}"\n' >"${copy}/script/run.sh"
+  chmod +x "${copy}/script/run.sh"
+  unset RUN_BIN
+  LSUSB_OUT="${REC}" run "${copy}/script/jetson.sh" flash
+  assert_success
+  run cat "${CALLS}"
+  assert_line 'default run.sh -t flash'
+}
+
+@test "Ctrl-C during prepare stops 'all' even though run.sh maps it to exit 0" {
+  # run.sh normalises an interrupted foreground service (130) to 0. make died
+  # of SIGINT instead, which stopped jetson.sh; without its own guard 'all'
+  # would carry on and flash after the user pressed Ctrl-C.
+  cat >"${RUN_BIN}" <<'EOF'
+#!/usr/bin/env bash
+printf 'run.sh %s\n' "$*" >>"${CALLS}"
+gp=$(awk '{print $4}' "/proc/${PPID}/stat")
+kill -INT "${gp}"
+exit 0
+EOF
+  WAIT_REC_INTERVAL=0.05 LSUSB_REC_AFTER=1 run "${JETSON}" all
+  assert_failure 130
+  assert_output --partial 'prepare interrupted'
+  run cat "${CALLS}"
+  assert_output --partial 'run.sh -t prepare'
+  refute_output --partial 'run.sh -t flash'
+}
+
+@test "Ctrl-C during flash is never reported as done" {
+  cat >"${RUN_BIN}" <<'EOF'
+#!/usr/bin/env bash
+gp=$(awk '{print $4}' "/proc/${PPID}/stat")
+kill -INT "${gp}"
+exit 0
+EOF
+  LSUSB_OUT="${REC}" run "${JETSON}" flash
+  assert_failure 130
+  refute_output --partial 'flash — done'
+}
+
+@test "status needs docker and lsusb, not make" {
+  printf 'hardware:\n  board: agx-orin\nstorage:\n  device: emmc\nuser:\n  password: s3cret\n' >"${L4T_REPO_ROOT}/jetson.yaml"
+  LSUSB_OUT="${REC}" run "${JETSON}" status
+  assert_success
+  refute_output --partial 'make not installed'
 }

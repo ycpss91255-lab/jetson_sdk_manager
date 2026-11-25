@@ -7,7 +7,7 @@
 # recovery range (see script/lib/usb.sh::JETSON_RECOVERY_PIDS), and
 # exits 0 only when at least one recovery device is present.
 #
-# Run via:  make run -- -t probe
+# Run via:  just docker run -t probe
 #
 # No Jetson required at image-build time. No jetson.yaml needed at
 # runtime — probe is intentionally config-free so users can sanity-
@@ -43,7 +43,7 @@ To put the Jetson into APX recovery:
   4. Reconnect power (or press Power).
   5. Release REC after ~2 seconds.
 
-Then re-run \`make run -- -t probe\` to verify.
+Then re-run \`just docker run -t probe\` to verify.
 EOF
     exit 1
   fi
@@ -71,12 +71,12 @@ EOF
 
 Action:
   1. Power-cycle the Jetson into recovery: power off, hold REC, reconnect power, release REC.
-  2. Re-run \`make run -- -t probe\` to verify the new PID lands in the recovery range.
+  2. Re-run \`just docker run -t probe\` to verify the new PID lands in the recovery range.
 EOF
     exit 1
   fi
 
-  printf '\n[probe] At least one Jetson is in APX recovery. Next: make run -- -t flash\n' >&2
+  printf '\n[probe] At least one Jetson is in APX recovery. Next: just docker run -t flash\n' >&2
 }
 
 main "$@"

@@ -63,7 +63,7 @@ _docker_required() {
     emit_error \
       --category permission \
       --detail "docker CLI not found on this host" \
-      --action "Run clean.sh from the host where you launch make run, not from inside the container"
+      --action "Run clean.sh from the host where you launch ./jetson or just docker run, not from inside the container"
     exit 1
   fi
 }
@@ -168,7 +168,7 @@ _clean_l4t() {
       emit_error \
         --category permission \
         --detail "docker volume rm ${VOLUME_NAME} failed — container still mounted?" \
-        --action "Stop any running prepare/flash container: make stop"
+        --action "Stop any running prepare/flash container: just docker stop"
       exit 1
     fi
     return 0

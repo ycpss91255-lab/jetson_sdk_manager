@@ -2,7 +2,7 @@
 # host_setup.sh — one-shot HOST prerequisites for the factory-flash workflow.
 #
 # Run this on the HOST (not inside the container), once per boot, BEFORE
-# `make run -- -t prepare` / `-t flash` — ideally before connecting the
+# `just docker run -t prepare` / `-t flash` — ideally before connecting the
 # Jetson. Everything here touches the host kernel or Docker and therefore
 # CANNOT be done from inside the container (which shares the host kernel):
 #
@@ -25,7 +25,7 @@
 # FLASH-SCOPED toggle (NM must ignore the Jetson USB gadget while flashing,
 # but manage it once the board boots so the host gets 192.168.55.100). That
 # lives in its own script, NOT here — one command handles both edges:
-#   ./script/nm_flash_guard.sh auto   # before `make run -- -t flash`
+#   ./script/nm_flash_guard.sh auto   # before `just docker run -t flash`
 # Without it the in-container flash stalls mid-transfer — see issue #48.
 #
 # Safe to re-run. The kernel bits need root, so you may be prompted for sudo.
@@ -56,7 +56,7 @@ QEMU_IMAGE="${QEMU_IMAGE:-multiarch/qemu-user-static}"
 USBFS_MEMORY_MB="${USBFS_MEMORY_MB:-2048}"
 DOCKER_BIN="${DOCKER_BIN:-docker}"
 # NFS export bridge (step 5). L4T_EXPORT_DIR must match volume.sh's
-# L4T_ROOT_DEFAULT (/srv/jetson_l4t) and setup.conf mount_6's container path.
+# L4T_ROOT_DEFAULT (/srv/jetson_l4t) and setup.toml's ./data/jetson_l4t volume target.
 L4T_EXPORT_SRC="${L4T_EXPORT_SRC:-${L4T_REPO_ROOT}/data/jetson_l4t}"
 # Track whether the caller redirected the export dir (tests do) so the
 # path-contract check below only fires for the real, un-overridden path —
@@ -84,7 +84,7 @@ _volume_export_default() {
 }
 
 # _assert_path_contract — the export path lives in three places that must
-# agree (volume.sh L4T_ROOT_DEFAULT, setup.conf mount_6's container path, and
+# agree (volume.sh L4T_ROOT_DEFAULT, setup.toml's ./data/jetson_l4t volume target, and
 # this script's L4T_EXPORT_DIR). They are wired up by hand, so a future edit to
 # one alone silently breaks the NFS export resolution (issue #52). Warn loudly
 # if this script's L4T_EXPORT_DIR has drifted from volume.sh's default so the
@@ -97,7 +97,7 @@ _assert_path_contract() {
   [[ -z "${_L4T_EXPORT_DIR_OVERRIDDEN}" ]] || return 0
   if [[ "${L4T_EXPORT_DIR}" != "${vol_default}" ]]; then
     _warn "L4T_EXPORT_DIR (${L4T_EXPORT_DIR}) != volume.sh L4T_ROOT_DEFAULT (${vol_default})"
-    _warn "these must match (and setup.conf mount_6's container path too) or the NFS export won't resolve — see issue #52"
+    _warn "these must match (and setup.toml's ./data/jetson_l4t volume target too) or the NFS export won't resolve — see issue #52"
   fi
 }
 
@@ -206,7 +206,7 @@ main() {
   # mount.nfs hangs (#101). Export the same paths on the host, to the same
   # client, with NVIDIA's rw options. ./jetson flash repeats this right
   # before every flash (a re-prepared images/ has a new file handle), so
-  # here it mostly serves people running `make run -- -t flash` by hand.
+  # here it mostly serves people running `just docker run -t flash` by hand.
   _export_l4t_tree
 
   cat >&2 <<'EOF'
@@ -215,10 +215,10 @@ main() {
 
   ./script/init_data_dirs.sh                            # first run only
   ln -sf config/jetson/agx-orin-emmc.yaml jetson.yaml   # pick a preset
-  make run -- -t prepare
+  just docker run -t prepare
   # put the Jetson in APX recovery, then:
   ./script/nm_flash_guard.sh auto                       # guard NetworkManager
-  make run -- -t flash
+  just docker run -t flash
 
 Re-run this script after each reboot (settings are not persistent).
 Done flashing?  ./script/host_teardown.sh   restores the host in this boot.

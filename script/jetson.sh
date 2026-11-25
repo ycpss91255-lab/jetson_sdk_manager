@@ -10,9 +10,9 @@
 # this.
 #
 #   ./jetson status              host readiness + Jetson USB state
-#   ./jetson prepare             host_setup → init_data_dirs → make run -t prepare
+#   ./jetson prepare             host_setup → init_data_dirs → run.sh -t prepare
 #   ./jetson wait-rec [seconds]  poll until a Jetson shows up in recovery
-#   ./jetson flash               (board in REC) host NFS export → nm guard → usb ss guard → make run -t flash
+#   ./jetson flash               (board in REC) host NFS export → nm guard → usb ss guard → run.sh -t flash
 #   ./jetson all                 prepare → wait-rec → flash
 #   ./jetson teardown            host_teardown.sh
 #   ./jetson purge [--yes] [--keep-downloads]   clean.sh purge
@@ -45,6 +45,9 @@ NM_GUARD_BIN="${NM_GUARD_BIN:-${_HERE}/nm_flash_guard.sh}"
 USB_SS_GUARD_BIN="${USB_SS_GUARD_BIN:-${_HERE}/usb_ss_guard.sh}"
 HOST_TEARDOWN_BIN="${HOST_TEARDOWN_BIN:-${_HERE}/host_teardown.sh}"
 CLEAN_BIN="${CLEAN_BIN:-${_HERE}/clean.sh}"
+# The base wrapper `just docker run` calls; used directly so ./jetson does
+# not depend on just.
+RUN_BIN="${RUN_BIN:-${_HERE}/run.sh}"
 
 _say()  { printf '\n\033[36m[jetson] %s\033[0m\n' "$1" >&2; }
 _ok()   { printf '  \033[32m✔\033[0m %s\n' "$1" >&2; }
@@ -117,6 +120,23 @@ _rec_instructions() {
 REC
 }
 
+# _run_stage <stage> — run one container stage in the foreground through the
+# base wrapper and return its exit code. run.sh reports a Ctrl-C'd stage as
+# exit 0 (it treats leaving a foreground container as a clean stop), so the
+# interrupt is recorded here: after Ctrl-C nothing may be called done, and
+# 'all' must not go on to flash.
+_run_stage() {
+  local stage="$1" rc=0 interrupted=""
+  trap 'interrupted=1' INT
+  (cd "${_REPO}" && "${RUN_BIN}" -t "${stage}") || rc=$?
+  trap - INT
+  if [[ -n "${interrupted}" ]]; then
+    printf '\n[jetson] %s interrupted\n' "${stage}" >&2
+    exit 130
+  fi
+  return "${rc}"
+}
+
 # ── commands ─────────────────────────────────────────────────────────
 
 cmd_flash() {
@@ -152,8 +172,8 @@ cmd_flash() {
   # the working high-speed device down (#100); park the SS half until boot.
   _say "flash — guarding the connector's SuperSpeed half for the initrd link"
   "${USB_SS_GUARD_BIN}" auto
-  _say "flash — writing images (make run -- -t flash)"
-  (cd "${_REPO}" && make run -- -t flash)
+  _say "flash — writing images (script/run.sh -t flash)"
+  _run_stage flash
   _say "flash — done"
   cat >&2 <<'NEXT'
   The Jetson reboots into the new OS. Over the same USB-C cable it is reachable at:
@@ -218,8 +238,8 @@ cmd_prepare() {
   _sudo_once
   "${HOST_SETUP_BIN}" || _die "host_setup.sh failed — fix what it reported, then re-run ./jetson prepare"
   "${INIT_DATA_DIRS_BIN}" || _die "init_data_dirs.sh failed"
-  _say "prepare — download BSP + build flash images (make run -- -t prepare, ~30 min first time)"
-  (cd "${_REPO}" && make run -- -t prepare) || _die "prepare failed — see the log above" "fix the cause, then re-run ./jetson prepare (it resumes where it stopped)"
+  _say "prepare — download BSP + build flash images (script/run.sh -t prepare, ~30 min first time)"
+  _run_stage prepare || _die "prepare failed — see the log above" "fix the cause, then re-run ./jetson prepare (it resumes where it stopped)"
   _say "prepare — done. Next: ./jetson flash (the board is still in recovery)"
 }
 
@@ -298,7 +318,7 @@ cmd_purge() {
 # about this host's tooling / images rather than the flash state.
 _status_tools() {
   local t
-  for t in docker make lsusb; do
+  for t in docker lsusb; do
     command -v "${t}" >/dev/null 2>&1 || { printf 'bad\t%s not installed\n' "${t}"; }
   done
   if command -v docker >/dev/null 2>&1; then
@@ -312,7 +332,7 @@ _status_images() {
     docker image inspect "${DOCKER_HUB_USER:-${USER:-$(id -un)}}/jetson_sdk_manager:${img}" >/dev/null 2>&1 || missing="${missing} ${img}"
   done
   if [[ -z "${missing}" ]]; then printf 'ok\tdocker images built: prepare, probe, flash\n'
-  else printf 'warn\tdocker images not built yet:%s (make run builds them on first use)\n' "${missing}"; fi
+  else printf 'warn\tdocker images not built yet:%s (./jetson prepare / flash build them on first use)\n' "${missing}"; fi
 }
 _status_nm() {
   if command -v systemctl >/dev/null 2>&1 && [[ "$(systemctl is-active NetworkManager 2>/dev/null)" == active ]]; then

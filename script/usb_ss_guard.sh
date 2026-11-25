@@ -21,7 +21,7 @@
 # reversed with `echo 0` — hence a flash-scoped guard like nm_flash_guard.sh.
 #
 # Usage:
-#   ./script/usb_ss_guard.sh disable        # before `make run -- -t flash`
+#   ./script/usb_ss_guard.sh disable        # before `just docker run -t flash`
 #   ./script/usb_ss_guard.sh enable         # after flashing (or leave it to auto)
 #   ./script/usb_ss_guard.sh auto [timeout] # disable, then re-enable the moment
 #                                           # the board boots (0955:7020), or after
