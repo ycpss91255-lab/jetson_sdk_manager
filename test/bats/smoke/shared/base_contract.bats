@@ -13,6 +13,11 @@ setup() {
   SETUP_TOML="${REPO_DIR}/setup.toml"
 }
 
+# _toml_table <name> — the lines of one [table] in setup.toml.
+_toml_table() {
+  awk -v want="[$1]" '/^\[/ { in_table = ($0 == want); next } in_table' "${SETUP_TOML}"
+}
+
 @test "the repo files under test are present" {
   [[ -f "${REPO_DIR}/script/jetson.sh" ]]
   [[ -f "${REPO_DIR}/script/lib/fs.sh" ]]
@@ -32,4 +37,18 @@ setup() {
   run grep -rnF 'setup.conf' "${REPO_DIR}/script"
   assert_failure 1
   assert_output ''
+}
+
+@test "setup.toml: no \${...} in [environment] — it reaches the container as literal text" {
+  [[ -f "${SETUP_TOML}" ]]
+  run _toml_table environment
+  assert_success
+  refute_output --partial '${'
+}
+
+@test "setup.toml: [lifecycle] restart is \"no\" — a finished flash must not start again" {
+  [[ -f "${SETUP_TOML}" ]]
+  run _toml_table lifecycle
+  assert_success
+  assert_output --partial 'restart = "no"'
 }

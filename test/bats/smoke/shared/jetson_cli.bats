@@ -63,6 +63,8 @@ EOF
   # The repo's container wrapper. `make` is deliberately NOT stubbed: the base
   # upgrade removed the Makefile, so any call to it must fail here too.
   export RUN_BIN="${BATS_TEST_TMPDIR}/run.sh"
+  # A developer's own shell must not trigger the host-env warnings below.
+  unset INITRD_FLASH_TIMEOUT JETSON_ALLOW_NON_UNIX_FS
 
   # Repo skeleton with a completed prepare (images phase recorded).
   export L4T_REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
@@ -548,4 +550,35 @@ EOF
   LSUSB_OUT="${REC}" run "${JETSON}" status
   assert_success
   refute_output --partial 'make not installed'
+}
+
+# ── host-shell overrides no longer reach the container ───────────────
+
+@test "flash warns that a host-shell INITRD_FLASH_TIMEOUT is ignored and names .env.local" {
+  INITRD_FLASH_TIMEOUT=900 LSUSB_OUT="${REC}" run "${JETSON}" flash
+  assert_success
+  assert_output --partial 'INITRD_FLASH_TIMEOUT=900 is set in this shell'
+  assert_output --partial 'add INITRD_FLASH_TIMEOUT=900 to'
+  assert_output --partial '.env.local'
+}
+
+@test "prepare warns that a host-shell JETSON_ALLOW_NON_UNIX_FS is ignored" {
+  JETSON_ALLOW_NON_UNIX_FS=1 LSUSB_OUT="${REC}" run "${JETSON}" prepare
+  assert_success
+  assert_output --partial 'JETSON_ALLOW_NON_UNIX_FS=1 is set in this shell'
+  assert_output --partial '.env.local'
+}
+
+@test "no host-env warning when nothing is set or .env.local already has the same value" {
+  LSUSB_OUT="${REC}" run "${JETSON}" flash
+  assert_success
+  refute_output --partial 'is set in this shell'
+  printf '# mine\nINITRD_FLASH_TIMEOUT=900\n' >"${L4T_REPO_ROOT}/.env.local"
+  INITRD_FLASH_TIMEOUT=900 LSUSB_OUT="${REC}" run "${JETSON}" flash
+  assert_success
+  refute_output --partial 'is set in this shell'
+  # A different value in .env.local wins over the shell: still worth saying.
+  INITRD_FLASH_TIMEOUT=1200 LSUSB_OUT="${REC}" run "${JETSON}" flash
+  assert_success
+  assert_output --partial 'INITRD_FLASH_TIMEOUT=1200 is set in this shell'
 }

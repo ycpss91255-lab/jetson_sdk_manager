@@ -174,7 +174,7 @@ main() {
     emit_error \
       --category validate \
       --detail "INITRD_FLASH_TIMEOUT must be a positive number of seconds, got: ${boot_timeout}" \
-      --action "unset it for the default (600), or e.g. INITRD_FLASH_TIMEOUT=900"
+      --action "In the repo's .env.local on the host: remove it for the default (600), or set e.g. INITRD_FLASH_TIMEOUT=900"
     exit 1
   fi
   _patch_initrd_boot_timeout "${l4t_dir}" "${boot_timeout}"

@@ -6,7 +6,7 @@
 # root-owned files inside the L4T rootfs. NTFS / exFAT / fuseblk / vfat
 # silently drop both, which yields a flashed Jetson whose sudo refuses to
 # start. Detect that early and abort with an actionable message, unless the
-# caller opts in via JETSON_ALLOW_NON_UNIX_FS=1.
+# caller opts in via JETSON_ALLOW_NON_UNIX_FS=1 (in .env.local).
 #
 # Caller must have sourced errors.sh first (for emit_error).
 
@@ -42,7 +42,7 @@ assert_unix_fs() {
         --detail "${path} is on ${fstype} — cannot preserve setuid / root ownership (the flashed Jetson would get a broken sudo)" \
         --action "Move this repo to an ext4 / xfs / btrfs partition" \
         "$@" \
-        --action "Or opt in to the unsafe path with JETSON_ALLOW_NON_UNIX_FS=1"
+        --action "Or opt in to the unsafe path: add JETSON_ALLOW_NON_UNIX_FS=1 to the repo's .env.local on the host"
       return 1
       ;;
     *)

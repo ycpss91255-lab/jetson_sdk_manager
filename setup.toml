@@ -36,6 +36,11 @@ gpu_count = "all"
 gpu_capabilities = "gpu compute utility graphics"
 gpu_runtime = "auto"
 
+# One-shot jobs: with the base default (unless-stopped) a finished flash
+# would start again and write the board a second time.
+[lifecycle]
+restart = "no"
+
 [gui]
 mode = "auto"
 
@@ -65,8 +70,6 @@ opt = "seccomp:unconfined"
 shm_size = ""
 
 [environment]
-env_1 = "JETSON_ALLOW_NON_UNIX_FS=${JETSON_ALLOW_NON_UNIX_FS:-0}"
-env_2 = "INITRD_FLASH_TIMEOUT=${INITRD_FLASH_TIMEOUT:-600}"
 
 [devices]
 cgroup_rules = []

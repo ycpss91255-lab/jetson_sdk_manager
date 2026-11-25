@@ -120,6 +120,19 @@ _rec_instructions() {
 REC
 }
 
+# _warn_host_only_env — the container's environment comes from .env (generated)
+# and .env.local (yours); a value exported in the calling shell no longer
+# reaches it. Say so instead of silently running with the default.
+_warn_host_only_env() {
+  local var
+  for var in INITRD_FLASH_TIMEOUT JETSON_ALLOW_NON_UNIX_FS; do
+    [[ -n "${!var:-}" ]] || continue
+    grep -qxF -- "${var}=${!var}" "${L4T_REPO_ROOT}/.env.local" 2>/dev/null && continue
+    _warn "${var}=${!var} is set in this shell, but the container does not receive it"
+    printf '    → add %s=%s to %s\n' "${var}" "${!var}" "${L4T_REPO_ROOT}/.env.local" >&2
+  done
+}
+
 # _run_stage <stage> — run one container stage in the foreground through the
 # base wrapper and return its exit code. run.sh reports a Ctrl-C'd stage as
 # exit 0 (it treats leaving a foreground container as a clean stop), so the
@@ -127,6 +140,7 @@ REC
 # 'all' must not go on to flash.
 _run_stage() {
   local stage="$1" rc=0 interrupted=""
+  _warn_host_only_env
   trap 'interrupted=1' INT
   (cd "${_REPO}" && "${RUN_BIN}" -t "${stage}") || rc=$?
   trap - INT

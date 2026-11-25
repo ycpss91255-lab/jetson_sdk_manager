@@ -88,7 +88,7 @@ download_if_missing() {
       --detail "wget failed for ${url}" \
       --action "Check network connectivity from inside the container" \
       --action "Verify URL availability at https://developer.nvidia.com/embedded/jetson-linux-archive" \
-      --action "If behind a proxy, set http_proxy/https_proxy in setup.toml [environment]"
+      --action "If behind a proxy, set http_proxy/https_proxy in .env.local (this machine) or setup.toml [environment]"
     return 1
   fi
   # Integrity-gate the .partial before promoting it: a failed check leaves no
