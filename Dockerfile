@@ -93,11 +93,11 @@ ARG GROUP="${USER_GROUP}"
 ARG ENTRYPOINT_FILE="script/entrypoint.sh"
 ARG CONFIG_DIR="/tmp/config"
 # Layered config/ override (template#254): two sequential COPYs into
-# /tmp/config/. The first brings .base/config/ defaults; the
+# /tmp/config/. The first brings .base/dist/config/ defaults; the
 # second overlays <repo>/config/ on top. File-level merge -- files in
 # <repo>/config/ replace same-path files in /tmp/config/; files only
-# in .base/config/ stay; files only in <repo>/config/ are added.
-# Mental model is the same as setup.conf section-replace, just at
+# in .base/dist/config/ stay; files only in <repo>/config/ are added.
+# Mental model is the same as the setup.toml table overlay, just at
 # file granularity. <repo>/config/ becomes opt-in (init.sh seeds an
 # empty .gitkeep for new repos, not the full tree); existing repos
 # with a full <repo>/config/ snapshot from earlier seed continue to
@@ -153,10 +153,10 @@ COPY --chmod=0755 "./${ENTRYPOINT_FILE}" "/entrypoint.sh"
 # bind-mounted .base/) avoids two failure modes: build-time smoke
 # crashes when $USER is unset, and multi-repo workspaces where
 # WS_PATH is the workspace parent rather than the repo root.
-COPY --chmod=0755 .base/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
-# Layer 1: .base/config/ defaults (subtree-managed, updates with
+COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/
+# Layer 1: .base/dist/config/ defaults (subtree-managed, updates with
 # .base/upgrade.sh).
-COPY --chown="${USER}":"${GROUP}" --chmod=0755 .base/config "${CONFIG_DIR}"
+COPY --chown="${USER}":"${GROUP}" --chmod=0755 .base/dist/config "${CONFIG_DIR}"
 # Layer 2: <repo>/config/ overrides (per-repo, survives subtree
 # pull). Files here overlay matching paths from layer 1.
 COPY --chown="${USER}":"${GROUP}" --chmod=0755 "${CONFIG_SRC}" "${CONFIG_DIR}"
@@ -207,6 +207,7 @@ FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage
 
 FROM devel AS devel-test
 
+# hadolint ignore=DL3066
 USER root
 
 # Lint tools (from pre-built test-tools image; see TEST_TOOLS_IMAGE at top)
@@ -225,8 +226,8 @@ COPY script/*.sh /lint/
 # (which in turn sources i18n.sh); setup.sh also sources _tui_conf.sh.
 # Post-#406 all helpers live under lib/ — single COPY preserves the
 # directory layout. The wrappers themselves live under wrapper/.
-COPY .base/script/docker/lib /lint/lib
-COPY .base/script/docker/wrapper /lint/wrapper
+COPY .base/dist/script/docker/lib /lint/lib
+COPY .base/dist/script/docker/wrapper /lint/wrapper
 # Lint coverage for repo-local Dockerfile-internal build helpers (#275).
 # Uncomment if your repo has any <repo>/script/docker/*.sh build helpers
 # (see the commented example in the devel stage above); the COPY brings
@@ -280,10 +281,16 @@ COPY --chmod=0755 script/clean.sh /opt/jetson_install/clean.sh
 # ./jetson entry point (#95) — copied so jetson_cli.bats runs here too.
 COPY --chmod=0755 script/jetson.sh /opt/jetson_install/jetson.sh
 COPY --chmod=0755 script/lib /opt/jetson_install/lib
+# Repo snapshot for base_contract.bats: what the scripts call and the
+# setup.toml keys whose base default is unsafe here (restart policy).
+COPY script /opt/repo/script
+COPY setup.toml Dockerfile /opt/repo/
 
 # Smoke test (shared from template + repo-specific)
-COPY .base/test/smoke/ /smoke_test/
-COPY test/smoke/ /smoke_test/
+COPY .base/dist/test/bats/smoke/shared/ /smoke_test/
+COPY .base/dist/test/bats/smoke/devel-test/ /smoke_test/
+COPY test/bats/smoke/shared/ /smoke_test/
+COPY test/bats/smoke/devel-test/ /smoke_test/
 
 ARG USER
 USER "${USER}"
@@ -300,6 +307,7 @@ RUN bats /smoke_test/
 # yq for /etc/jetson.yaml lookup is already in devel.
 FROM devel AS sdkm-base
 
+# hadolint ignore=DL3066
 USER root
 
 ARG DEBIAN_FRONTEND=noninteractive
@@ -362,6 +370,7 @@ RUN sdkmanager --ver
 # auto, NVIDIA login) and the CI-guarded factory flash default. See #53.
 FROM sdkm-base AS gui
 
+# hadolint ignore=DL3066
 USER root
 
 ARG DEBIAN_FRONTEND=noninteractive
@@ -407,6 +416,7 @@ RUN sdkmanager --ver
 # config/jetson/_l4t_mapping.yaml in this repo, commit, and rebuild.
 FROM devel AS prepare
 
+# hadolint ignore=DL3066
 USER root
 
 # Tools (yq, lbzip2, tar, wget, sudo, openssh-client, etc.) already
@@ -435,6 +445,7 @@ CMD ["/opt/jetson_install/prepare.sh"]
 # script/flash.sh + doc/Flash_Workflow.md.
 FROM devel AS flash
 
+# hadolint ignore=DL3066
 USER root
 
 # yq already in devel. This stage layers in only the YAML mapping
@@ -457,6 +468,7 @@ CMD ["/opt/jetson_install/flash.sh"]
 # See script/probe.sh + script/lib/usb.sh.
 FROM devel AS probe
 
+# hadolint ignore=DL3066
 USER root
 
 # lsusb (usbutils) already in devel. Only the entry script + the

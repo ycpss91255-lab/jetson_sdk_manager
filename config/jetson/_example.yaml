@@ -5,7 +5,7 @@
 # symlink it from the repo root:
 #
 #   ln -sf config/jetson/agx-orin-emmc.yaml jetson.yaml
-#   make run -- -t prepare
+#   just docker run -t prepare
 #
 # `prepare` reads /etc/jetson.yaml (bind-mounted from the symlink) and
 # writes flash images to a Docker named volume. `flash` reads the same

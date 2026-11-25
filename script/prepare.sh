@@ -19,7 +19,7 @@
 #   9. (optional) NetworkManager profile from network.method=static
 #  10. l4t_initrd_flash.sh --no-flash → tools/kernel_flash/images/
 #
-# After success: print "run \`make run -- -t flash\` next".
+# After success: print "run \`just docker run -t flash\` next".
 
 set -euo pipefail
 
@@ -37,7 +37,7 @@ _HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 _step() { printf '\n\033[36m[prepare] %s\033[0m\n' "$1" >&2; }
 
-# L4T_ROOT lives on the host's data/jetson_l4t/ via setup.conf. NVIDIA's
+# L4T_ROOT lives on the host's data/jetson_l4t/ via setup.toml. NVIDIA's
 # apply_binaries.sh creates a setuid `sudo` and root-owned files inside
 # rootfs/; NTFS / exFAT / fuseblk filesystems silently drop both, which
 # yields a broken flashed Jetson (sudo refuses to start). Abort early.
@@ -250,7 +250,7 @@ main() {
 [prepare] Phase 1 complete. Volume jetson_l4t is ready.
 
 Next step (the board is still in APX recovery — leave it there):
-  ./jetson flash          # or: ./script/nm_flash_guard.sh auto && make run -- -t flash
+  ./jetson flash          # or: ./script/nm_flash_guard.sh auto && just docker run -t flash
 
 EOF
 }

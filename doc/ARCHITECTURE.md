@@ -4,26 +4,28 @@ How the repo is put together. For *using* it, see the [README](../README.md).
 
 ## Under the hood: the commands `./jetson` runs
 
-`./jetson` is a thin dispatcher (`script/jetson.sh`); every step is an existing script or `make` target you can run yourself.
+`./jetson` is a thin dispatcher (`script/jetson.sh`); every step is an existing script you can run yourself. It starts the container stages through `script/run.sh`, the wrapper behind `just docker run`.
 
 | `./jetson …` | Runs |
 |---|---|
 | `status` | `lib/status.sh` checks + `lsusb -d 0955:` (same PID list as `script/probe.sh`) + `lib/nfs_export.sh::nfs_export_status` (host `rpc.mountd` vs. the L4T exports) |
-| `prepare` | preflight (a Jetson in recovery, unless `--no-board`) → `sudo -v` → `./script/host_setup.sh` → `./script/init_data_dirs.sh` → `make run -- -t prepare` (auto-builds the image) |
+| `prepare` | preflight (a Jetson in recovery, unless `--no-board`) → `sudo -v` → `./script/host_setup.sh` → `./script/init_data_dirs.sh` → `./script/run.sh -t prepare /opt/jetson_install/prepare.sh` (auto-builds the image) |
 | `wait-rec` | polls `lsusb` for a recovery PID |
-| `flash` | preflight (recovery PID, `images` phase in `.prepared.yaml`) → `sudo -v` → `lib/nfs_export.sh::nfs_export_on` (host NFS export of the L4T tree, re-done every flash — [#101](https://github.com/ycpss91255-docker/jetson_sdk_manager/issues/101)) → `./script/nm_flash_guard.sh auto` → `./script/usb_ss_guard.sh auto` → `make run -- -t flash` |
+| `flash` | preflight (recovery PID, `images` phase in `.prepared.yaml`) → `sudo -v` → `lib/nfs_export.sh::nfs_export_on` (host NFS export of the L4T tree, re-done every flash — [#101](https://github.com/ycpss91255-lab/jetson_sdk_manager/issues/101)) → `./script/nm_flash_guard.sh auto` → `./script/usb_ss_guard.sh auto` → `./script/run.sh -t flash /opt/jetson_install/flash.sh` |
 | `teardown` | `./script/host_teardown.sh` (incl. the host NFS unexport, `nm_flash_guard.sh enable` + `usb_ss_guard.sh enable`) |
 | `purge` | `./script/clean.sh purge [--keep-downloads]` |
 
 Other useful manual commands:
 
 ```bash
-make build -- -t <stage>      # rebuild one stage image (one -t per invocation)
-make run -- -t probe          # the recovery check on its own (or: bash ./script/probe.sh on the host)
+just docker build -t <stage>  # rebuild one stage image (one -t per invocation)
+just docker run -t probe      # the recovery check on its own (or: bash ./script/probe.sh on the host)
 ./script/nm_flash_guard.sh status|disable|enable|auto|watch
 ./script/usb_ss_guard.sh status|disable|enable|auto
 ./script/clean.sh build|rootfs|l4t|all|purge
 ```
+
+`just docker run -t <stage>` without a command attaches with `docker compose up`, which exits 0 even when the stage failed — read the log, do not chain it with `&&`. `./jetson` passes the stage's script as the command (`./script/run.sh -t flash /opt/jetson_install/flash.sh`), which returns the real exit code.
 
 ### `host_setup.sh`, step by step
 
@@ -35,21 +37,21 @@ Everything here touches the host kernel or Docker and cannot be done from inside
 3. **USB autosuspend off** — `/sys/module/usbcore/parameters/autosuspend = -1`.
 4. **usbfs buffer** — `/sys/module/usbcore/parameters/usbfs_memory_mb = 2048`; stops `tegrarcm_v2` bulk writes stalling.
 5. **`/srv/jetson_l4t` bridge** — bind-mount `data/jetson_l4t` to the same path the container sees, because the kernel `nfsd` resolves the export in the *host* mount namespace.
-6. **Host NFS export** ([#101](https://github.com/ycpss91255-docker/jetson_sdk_manager/issues/101)) — when the host has `exportfs` (nfs-kernel-server), export the prepared tree's `rootfs`, `tools/kernel_flash/images` and `tools/kernel_flash/tmp` (host paths under the bridge) to `fc00:1:1::/48` with NVIDIA's `rw,nohide,insecure,no_subtree_check,async,no_root_squash`, then `exportfs -f`. Otherwise the *host's* `rpc.mountd` answers the shared kernel `nfsd` with an empty `/etc/exports` and the board's `mount.nfs` hangs. Skipped with a message when no tree is prepared yet or `rootfs` / `images` are missing (prepare runs this script first, also after `clean.sh build`); `./jetson flash` repeats it before every flash so a regenerated `images/` never serves a stale file handle. Done whenever the host *has* `exportfs`, mountd running or not. No `exportfs`: no-op, the container's own server suffices. Trust model: production uses only literals (`/usr/sbin/exportfs`, `/var/lib/nfs/etab`, `/srv/jetson_l4t`, client, options) and confines every path handed to `sudo` on the canonical filesystem (`readlink -f`, no `..`, symlink escapes refused — export and unexport side alike, including entries read from `/var/lib/nfs/etab`) under `/srv/jetson_l4t`; the bats suites use `NFS_EXPORT_TEST_ROOT=<dir>` (exportfs = `<dir>/bin/exportfs`, etab = `<dir>/etab`, export dir = `<dir>/srv/jetson_l4t`, no sudo, prints `[test mode]`). `lib/nfs_export.sh`; `host_teardown.sh` unexports first — every table entry under `/srv/jetson_l4t` (an exported directory pins the bridge mount).
+6. **Host NFS export** ([#101](https://github.com/ycpss91255-lab/jetson_sdk_manager/issues/101)) — when the host has `exportfs` (nfs-kernel-server), export the prepared tree's `rootfs`, `tools/kernel_flash/images` and `tools/kernel_flash/tmp` (host paths under the bridge) to `fc00:1:1::/48` with NVIDIA's `rw,nohide,insecure,no_subtree_check,async,no_root_squash`, then `exportfs -f`. Otherwise the *host's* `rpc.mountd` answers the shared kernel `nfsd` with an empty `/etc/exports` and the board's `mount.nfs` hangs. Skipped with a message when no tree is prepared yet or `rootfs` / `images` are missing (prepare runs this script first, also after `clean.sh build`); `./jetson flash` repeats it before every flash so a regenerated `images/` never serves a stale file handle. Done whenever the host *has* `exportfs`, mountd running or not. No `exportfs`: no-op, the container's own server suffices. Trust model: production uses only literals (`/usr/sbin/exportfs`, `/var/lib/nfs/etab`, `/srv/jetson_l4t`, client, options) and confines every path handed to `sudo` on the canonical filesystem (`readlink -f`, no `..`, symlink escapes refused — export and unexport side alike, including entries read from `/var/lib/nfs/etab`) under `/srv/jetson_l4t`; the bats suites use `NFS_EXPORT_TEST_ROOT=<dir>` (exportfs = `<dir>/bin/exportfs`, etab = `<dir>/etab`, export dir = `<dir>/srv/jetson_l4t`, no sudo, prints `[test mode]`). `lib/nfs_export.sh`; `host_teardown.sh` unexports first — every table entry under `/srv/jetson_l4t` (an exported directory pins the bridge mount).
 
 ### `nm_flash_guard.sh`
 
-On a NetworkManager host, NM DHCP-probes the Jetson's USB gadget interface mid-flash and tears the link down (the "Flashing 99 %" stall, [#48](https://github.com/ycpss91255-docker/jetson_sdk_manager/issues/48)). `auto` marks the interface unmanaged for the flash and re-enables NM the moment the board re-enumerates as booted (`0955:7020`), so the host picks up `192.168.55.x` and you can SSH in. Subcommands: `status`, `disable`, `enable`, `auto [timeout]`, `watch`, `around <cmd>`, `install-autohook` / `uninstall-autohook` (a root helper so the detached re-enable works without a tty).
+On a NetworkManager host, NM DHCP-probes the Jetson's USB gadget interface mid-flash and tears the link down (the "Flashing 99 %" stall, [#48](https://github.com/ycpss91255-lab/jetson_sdk_manager/issues/48)). `auto` marks the interface unmanaged for the flash and re-enables NM the moment the board re-enumerates as booted (`0955:7020`), so the host picks up `192.168.55.x` and you can SSH in. Subcommands: `status`, `disable`, `enable`, `auto [timeout]`, `watch`, `around <cmd>`, `install-autohook` / `uninstall-autohook` (a root helper so the detached re-enable works without a tty).
 
 ### `usb_ss_guard.sh`
 
-The flash initrd's USB gadget (`0955:7035`) only needs USB 2, but it also tries to train a SuperSpeed link on the same connector; on some hosts that never succeeds and each retry tears the working high-speed device down (`Waiting for target to boot-up...` until timeout, [#100](https://github.com/ycpss91255-docker/jetson_sdk_manager/issues/100)). A USB-C / USB 3 connector is two `usb_port`s on two xHCI root hubs that share one ACPI `location`; `disable` finds the recovery device's root-hub port from its sysfs name (`3-1` → `usb3/3-0:1.0/usb3-port1`), requires the device to be at high speed, pairs the port with the *one* port on a SuperSpeed root hub (`speed` ≥ 5000) carrying the same non-zero `location`, and writes `1` to that port's `disable`. What was disabled is recorded as `port=` / `token=` in `/run/usb-ss-guard/state` — a root-owned directory nobody else can pre-create, because `enable` writes to the recorded path as root. That path is re-validated before every write (`lib/usb.sh` `usb_ss_port_ok`: `usbN/N-0:1.0/usbN-portM` under the sysfs root, no symlink in the tail, canonical path checked); anything else is refused. The sysfs root and the state directory are literal constants — nothing in the caller's environment can redirect a privileged write; the bats suite uses the one explicit override, `USB_SS_GUARD_TEST_ROOT=<dir>` (sysfs `<dir>/sys`, state `<dir>/run`, no sudo, announced with a `[test mode]` line). Timeouts from the command line and from `USB_SS_GUARD_TIMEOUT` / `USB_SS_GUARD_POLL_INTERVAL` are validated before anything is touched. `auto` starts the watcher as root (`sudo -n`) while the credential is fresh, the watcher writes its own pidfile and carries the token so a superseded watcher never undoes a newer guard, and only a PID `/proc` confirms to be a watcher is ever killed. No SuperSpeed sibling, behind a hub, ambiguous location or no `disable` attribute → message, exit 0. Subcommands: `status`, `disable`, `enable`, `auto [timeout]`.
+The flash initrd's USB gadget (`0955:7035`) only needs USB 2, but it also tries to train a SuperSpeed link on the same connector; on some hosts that never succeeds and each retry tears the working high-speed device down (`Waiting for target to boot-up...` until timeout, [#100](https://github.com/ycpss91255-lab/jetson_sdk_manager/issues/100)). A USB-C / USB 3 connector is two `usb_port`s on two xHCI root hubs that share one ACPI `location`; `disable` finds the recovery device's root-hub port from its sysfs name (`3-1` → `usb3/3-0:1.0/usb3-port1`), requires the device to be at high speed, pairs the port with the *one* port on a SuperSpeed root hub (`speed` ≥ 5000) carrying the same non-zero `location`, and writes `1` to that port's `disable`. What was disabled is recorded as `port=` / `token=` in `/run/usb-ss-guard/state` — a root-owned directory nobody else can pre-create, because `enable` writes to the recorded path as root. That path is re-validated before every write (`lib/usb.sh` `usb_ss_port_ok`: `usbN/N-0:1.0/usbN-portM` under the sysfs root, no symlink in the tail, canonical path checked); anything else is refused. The sysfs root and the state directory are literal constants — nothing in the caller's environment can redirect a privileged write; the bats suite uses the one explicit override, `USB_SS_GUARD_TEST_ROOT=<dir>` (sysfs `<dir>/sys`, state `<dir>/run`, no sudo, announced with a `[test mode]` line). Timeouts from the command line and from `USB_SS_GUARD_TIMEOUT` / `USB_SS_GUARD_POLL_INTERVAL` are validated before anything is touched. `auto` starts the watcher as root (`sudo -n`) while the credential is fresh, the watcher writes its own pidfile and carries the token so a superseded watcher never undoes a newer guard, and only a PID `/proc` confirms to be a watcher is ever killed. No SuperSpeed sibling, behind a hub, ambiguous location or no `disable` attribute → message, exit 0. Subcommands: `status`, `disable`, `enable`, `auto [timeout]`.
 
 ## Stages
 
 | Stage | Purpose | Jetson required |
 |---|---|---|
-| `devel` | Flash tooling (`l4t_initrd_flash.sh` dependencies). Default `make build` target. | No |
+| `devel` | Flash tooling (`l4t_initrd_flash.sh` dependencies). Default `just docker build` target. | No |
 | `devel-test` | Lint (`shellcheck` + `hadolint`) + bats smoke tests. CI-only. | No |
 | `prepare` | Phase 1 — download BSP + sample rootfs, `apply_binaries.sh`, `l4t_create_default_user.sh`, `l4t_initrd_flash --no-flash`. | **Yes, in recovery** — the last step reads the board spec from the EEPROM (unless `BOARDID FAB BOARDSKU BOARDREV` are exported) |
 | `flash` | Phase 2 — `l4t_initrd_flash --flash-only`. | **Yes**, in APX recovery |
@@ -73,18 +75,30 @@ This repo ships two ways to flash a Jetson. **Factory flash is the documented de
 
 The **prepare** stage uses the BSP's own `l4t_initrd_flash.sh --no-flash` to build flash images host-side (no Jetson, no NVIDIA login); the **flash** stage writes them with `--flash-only` — the Jetson boots a minimal initrd over the `tegrarcm_v2` USB link and pulls the images from a local NFS export on that same link. That needs the host's `nfsd` module loaded (see [README → Prerequisites](../README.md#prerequisites)), but no `iptables` or `usb-gadget` device-mode forwarding.
 
-**SDK Manager is _not_ "broken inside Docker"** — an earlier claim this repo has since dropped. The well-known [Flashing-99% stall](https://forums.developer.nvidia.com/t/docker-sdk-manager-flash-nx-struck-at-99/365066) was the **host's NetworkManager** DHCP-probing the USB gadget link and tearing it down ([#48](https://github.com/ycpss91255-docker/jetson_sdk_manager/issues/48)), fixed by [`nm_flash_guard.sh`](../script/nm_flash_guard.sh); the *"Device mode forwarding host setup failed"* step was just missing `iptables` + `dnsutils`, now in `sdkm-base`. With the [shared host prep](../README.md#prerequisites) (`host_setup.sh`, `nm_flash_guard.sh auto`) and an NVIDIA login, SDK Manager flashes — see [SDK Manager (cli / gui)](#sdk-manager-cli--gui). Factory flash stays the default because it needs no login and is scriptable/offline.
+**SDK Manager is _not_ "broken inside Docker"** — an earlier claim this repo has since dropped. The well-known [Flashing-99% stall](https://forums.developer.nvidia.com/t/docker-sdk-manager-flash-nx-struck-at-99/365066) was the **host's NetworkManager** DHCP-probing the USB gadget link and tearing it down ([#48](https://github.com/ycpss91255-lab/jetson_sdk_manager/issues/48)), fixed by [`nm_flash_guard.sh`](../script/nm_flash_guard.sh); the *"Device mode forwarding host setup failed"* step was just missing `iptables` + `dnsutils`, now in `sdkm-base`. With the [shared host prep](../README.md#prerequisites) (`host_setup.sh`, `nm_flash_guard.sh auto`) and an NVIDIA login, SDK Manager flashes — see [SDK Manager (cli / gui)](#sdk-manager-cli--gui). Factory flash stays the default because it needs no login and is scriptable/offline.
 
 ## SDK Manager (cli / gui)
 
 The factory `prepare` / `flash` stages are the supported default. SDK Manager is shipped as two **best-effort** stages for users who prefer NVIDIA's own tool or want to browse the JetPack `.deb` catalog: `cli` (`sdkmanager --cli`) and `gui` (the graphical client). Both build on `sdkm-base`, which adds the `iptables` + `dnsutils` that SDK Manager's in-Docker device-mode forwarding needs.
 
 ```bash
-make build -- -t gui    # or: -t cli
-make run -- -t gui      # or: -t cli
+just docker build -t gui    # or: -t cli
+just docker run -t gui      # or: -t cli
 ```
 
 Best-effort means: CI builds the stages and smokes `sdkmanager --ver`, but a real SDK Manager flash is manual and may drift with NVIDIA upstream. For a GUI/CLI flash to succeed, set up the same host prerequisites as the factory path first — `./script/host_setup.sh` and `./script/nm_flash_guard.sh auto` — and sign in with your NVIDIA Developer account. The `gui` entrypoint prints a banner with these steps, then (interactively) waits for Enter before launching; extra positional args after `-t gui` are forwarded to `sdkmanager-gui` (after `--no-sandbox`). GUI mode needs an X11 session on the host (auto-forwarded by the base template).
+
+## Runtime configuration
+
+`setup.toml` is the source of truth; `just docker setup apply` derives `.env`, `.env.generated` and `compose.yaml` from it (`just docker run` / `build` re-derive them when it changed). Two things are deliberate here:
+
+- **`[lifecycle] restart = "no"`** — the base default (`unless-stopped`) would start `flash` again as soon as it finished and write the board a second time. The stages are one-shot jobs; none of them may restart on its own. `test/bats/smoke/shared/base_contract.bats` guards it.
+- **Per-machine environment goes in `.env.local`** (gitignored, one `KEY=VALUE` per line, effective on the next run). `[environment]` values reach the container as literal text, so `${VAR:-default}` does not work there, and a variable exported in the host shell does not reach the container either — `./jetson` warns when it sees one:
+
+  | Variable | Default (in the scripts) | Effect |
+  |---|---|---|
+  | `INITRD_FLASH_TIMEOUT` | `600` | Seconds `flash` waits for the board to come back as the initrd flash device. |
+  | `JETSON_ALLOW_NON_UNIX_FS` | `0` | `1` downgrades the non-unix-filesystem abort to a warning (diagnostics only, see [TROUBLESHOOTING](TROUBLESHOOTING.md)). |
 
 ## Persistent Data
 
@@ -134,7 +148,8 @@ jetson_sdk_manager/
 ├── jetson.yaml -> config/jetson/agx-orin-emmc.yaml   # symlink; switch presets here
 ├── compose.yaml                 # Docker Compose (derived, gitignored)
 ├── Dockerfile                   # sys → devel-base → devel → {prepare, flash, probe, sdkm-base → cli/gui}
-├── Makefile -> .base/script/docker/Makefile
+├── justfile -> script/justfile
+├── setup.toml                   # Runtime config — source of truth
 ├── .base/                       # Shared template (git subtree)
 ├── data/                        # Persistent state (gitignored)
 │   ├── jetson_l4t/              #   BSP + rootfs + flash images
@@ -144,7 +159,6 @@ jetson_sdk_manager/
 │   ├── nvsdkm/                  #   SDK Manager login session (cli/gui)
 │   └── nvidia_sdk/              #   SDK Manager install folder (cli/gui)
 ├── config/
-│   ├── docker/setup.conf        # Runtime config — source of truth
 │   ├── jetson/                  # Flash presets + schema
 │   │   ├── _example.yaml        #   Canonical schema with comments
 │   │   ├── _l4t_mapping.yaml    #   JetPack → L4T release / URLs (build-time)

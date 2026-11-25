@@ -11,7 +11,7 @@ Companion to the [README](../README.md). Run `./jetson status` first — most of
 ```bash
 ./script/host_setup.sh           # step 0: data/jetson_l4t.img → loop-mounted on data/jetson_l4t
 findmnt ./data/jetson_l4t        # should show FSTYPE ext4, SOURCE /dev/loopN
-make run -- -t prepare
+just docker run -t prepare
 ```
 
 Knobs (environment variables for `host_setup.sh`):
@@ -27,10 +27,22 @@ The mount is not persistent; re-run `host_setup.sh` after a reboot. `host_setup.
 For diagnostic purposes only, `JETSON_ALLOW_NON_UNIX_FS=1` downgrades the abort to a warning:
 
 ```bash
-JETSON_ALLOW_NON_UNIX_FS=1 make run -- -t prepare
+echo 'JETSON_ALLOW_NON_UNIX_FS=1' >> .env.local   # the container does not see the host shell's variables
+just docker run -t prepare
 ```
 
 This **cannot produce a working flash** on a non-unix filesystem. NVIDIA's `apply_binaries.sh` has its own root-ownership check (`find rootfs/etc/passwd -user root -group root`) that aborts step 7/10 once the sample rootfs has extracted under the wrong owner. The escape hatch only exists so a maintainer can run prepare far enough to observe the failure mode empirically; it is not a workaround for the underlying filesystem constraint.
+
+### `INITRD_FLASH_TIMEOUT` / `JETSON_ALLOW_NON_UNIX_FS` set in the shell has no effect
+
+The container reads its environment from the generated `.env` and your `.env.local`, not from the shell that starts it (`./jetson` prints a warning when it sees one of these set). Put the override in `.env.local` at the repo root — gitignored, one `KEY=VALUE` per line, effective on the next run:
+
+```bash
+echo 'INITRD_FLASH_TIMEOUT=900' >> .env.local
+./jetson flash
+```
+
+Remove the line to go back to the default (600 s). `INITRD_FLASH_TIMEOUT must be a positive number of seconds` means the value that did reach the container is not a plain number.
 
 ### `prepare.sh` aborts: volume mismatch
 
@@ -38,7 +50,7 @@ The `.prepared.yaml` marker says the volume was prepared for a different JetPack
 
 ```bash
 ./script/clean.sh l4t
-make run -- -t prepare
+just docker run -t prepare
 ```
 
 ### `chroot: failed to run command 'dpkg': Exec format error`
@@ -56,10 +68,10 @@ Run once per host boot.
 `flash.sh` checks `lsusb` for NVIDIA VID `0955` + a recovery PID (`7023` / `7223` / `7423` / `7523` / `7e19`) and aborts if none is present. Run the `probe` stage to get the same check in isolation — useful for testing different cables / ports without losing the prepare-stage state:
 
 ```bash
-make run -- -t probe
+just docker run -t probe
 ```
 
-It prints every NVIDIA-vendor device on the bus, annotates which ones are in the recovery range, and exits 0 only when at least one is.
+It prints every NVIDIA-vendor device on the bus, annotates which ones are in the recovery range, and reports whether at least one is. For a usable exit code run `bash ./script/probe.sh` on the host; `just docker run -t probe` exits 0 either way.
 
 Recovery mode entry, step-by-step:
 
@@ -91,21 +103,20 @@ The `flash` stage's `l4t_initrd_flash.sh` serves the flash payload to the Jetson
  * Not starting NFS kernel daemon: no support in current kernel.
 clnt_create: RPC: Program not registered
 NFS server is not running
-make: *** [Makefile:41: run] Error 114
 ```
 
 Load it on the host (not inside the container), then re-run the flash:
 
 ```bash
 sudo modprobe nfsd
-make run -- -t flash
+just docker run -t flash
 ```
 
 Persist across reboots with `echo nfsd | sudo tee /etc/modules-load.d/nfsd.conf`. See [README → Prerequisites](../README.md#prerequisites). `flash.sh` now pre-checks this and aborts early with the same guidance.
 
 ### Flash stalls mid-transfer / "Flashing - 99%" / `mount.nfs: No such file or directory`
 
-The in-container flash (either path) stalling partway is almost always the **host's NetworkManager** DHCP-probing the Jetson's USB gadget interface, timing out, and removing the address mid-transfer — the root cause traced in [#48](https://github.com/ycpss91255-docker/jetson_sdk_manager/issues/48). Run `./script/nm_flash_guard.sh auto` before flashing (it marks the interface unmanaged, then re-enables NM when the board boots). If instead you see `mount.nfs: ... No such file or directory`, the host `/srv/jetson_l4t` bridge is missing — `./script/host_setup.sh` sets it up (step 5/7).
+The in-container flash (either path) stalling partway is almost always the **host's NetworkManager** DHCP-probing the Jetson's USB gadget interface, timing out, and removing the address mid-transfer — the root cause traced in [#48](https://github.com/ycpss91255-lab/jetson_sdk_manager/issues/48). Run `./script/nm_flash_guard.sh auto` before flashing (it marks the interface unmanaged, then re-enables NM when the board boots). If instead you see `mount.nfs: ... No such file or directory`, the host `/srv/jetson_l4t` bridge is missing — `./script/host_setup.sh` sets it up (step 5/7).
 
 ### "SSH ready", then nothing / `Either the device cannot mount the NFS server on the host or a flash command has failed`
 
@@ -115,7 +126,7 @@ The board booted the initrd, the host reached it over the `fc00:1:1::/48` link (
 Error: Either the device cannot mount the NFS server on the host or a flash command has failed
 ```
 
-**Cause** ([#101](https://github.com/ycpss91255-docker/jetson_sdk_manager/issues/101), AGX Orin 64 GB, 2026-09-16): the **host runs its own `nfs-kernel-server`** (`rpc.mountd`, `nfsdcld`, `rpcbind` from boot). The flash container (`--network host`) runs `exportfs` + its own `rpc.mountd`, but the kernel `nfsd` is shared, and its export upcalls got answered by the **host's** mountd using the host's empty `/etc/exports` → the board's `mount.nfs [fc00:1:1::1]:…/rootfs /mnt` hangs forever. Diagnose on the host while it hangs:
+**Cause** ([#101](https://github.com/ycpss91255-lab/jetson_sdk_manager/issues/101), AGX Orin 64 GB, 2026-09-16): the **host runs its own `nfs-kernel-server`** (`rpc.mountd`, `nfsdcld`, `rpcbind` from boot). The flash container (`--network host`) runs `exportfs` + its own `rpc.mountd`, but the kernel `nfsd` is shared, and its export upcalls got answered by the **host's** mountd using the host's empty `/etc/exports` → the board's `mount.nfs [fc00:1:1::1]:…/rootfs /mnt` hangs forever. Diagnose on the host while it hangs:
 
 ```bash
 grep -E '^rc|^net' /proc/net/rpc/nfsd     # rc stuck at "rc 0 0 2" and the tcpconn count climbing = nobody answers
@@ -144,7 +155,7 @@ sudo exportfs -f                                        # flush the kernel expor
 
 ### Flash waits in `Waiting for target to boot-up...` while dmesg loops `Cannot enable. Maybe the USB cable is bad?`
 
-After `RCM-boot started` the board leaves RCM and comes back as the flash initrd's USB gadget (`0955:7035`, "Linux for Tegra", RNDIS). It only needs USB 2, but it also tries to train a SuperSpeed link on the same connector, and on some hosts (seen on an Ubuntu laptop, kernel 7.0, AGX Orin 64 GB, [#100](https://github.com/ycpss91255-docker/jetson_sdk_manager/issues/100)) that link never comes up. The xHCI SuperSpeed root hub then retries every few seconds, and each retry tears the working high-speed device down with it. `dmesg -w` shows the loop — note the two bus numbers, the SS half (`usb2-port3` here) and the HS half (`3-1`), which are the *same* physical connector:
+After `RCM-boot started` the board leaves RCM and comes back as the flash initrd's USB gadget (`0955:7035`, "Linux for Tegra", RNDIS). It only needs USB 2, but it also tries to train a SuperSpeed link on the same connector, and on some hosts (seen on an Ubuntu laptop, kernel 7.0, AGX Orin 64 GB, [#100](https://github.com/ycpss91255-lab/jetson_sdk_manager/issues/100)) that link never comes up. The xHCI SuperSpeed root hub then retries every few seconds, and each retry tears the working high-speed device down with it. `dmesg -w` shows the loop — note the two bus numbers, the SS half (`usb2-port3` here) and the HS half (`3-1`), which are the *same* physical connector:
 
 ```
 usb 2-3: Device not responding to setup address.
@@ -173,7 +184,7 @@ echo 0 | sudo tee /sys/bus/usb/devices/usb2/2-0:1.0/usb2-port3/disable   # or ju
 
 ### SDK Manager: "Device mode forwarding host setup failed"
 
-This is **not** a fundamental Docker limitation (an earlier README claimed so — it was wrong). SDK Manager's `device_mode_host_setup.sh` needs `iptables` (NAT MASQUERADE) and `dig` (a DNS reachability probe); both now ship in the `sdkm-base` layer, so the `cli` / `gui` stages clear this step. If it still fails, confirm you ran `./script/host_setup.sh` + `./script/nm_flash_guard.sh auto` and are signed in to your NVIDIA Developer account. Context: [#48](https://github.com/ycpss91255-docker/jetson_sdk_manager/issues/48).
+This is **not** a fundamental Docker limitation (an earlier README claimed so — it was wrong). SDK Manager's `device_mode_host_setup.sh` needs `iptables` (NAT MASQUERADE) and `dig` (a DNS reachability probe); both now ship in the `sdkm-base` layer, so the `cli` / `gui` stages clear this step. If it still fails, confirm you ran `./script/host_setup.sh` + `./script/nm_flash_guard.sh auto` and are signed in to your NVIDIA Developer account. Context: [#48](https://github.com/ycpss91255-lab/jetson_sdk_manager/issues/48).
 
 ### SDK Manager GUI: component install hangs (a step stuck at a fixed %)
 

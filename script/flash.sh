@@ -91,7 +91,7 @@ main() {
     emit_error \
       --category volume-mismatch \
       --detail "Volume jetson_l4t is empty — no flash images to write" \
-      --action "Run \`make run -- -t prepare\` first"
+      --action "Run \`just docker run -t prepare\` first"
     exit 1
   fi
   volume_assert_match "${jp}" "${hw_target}"
@@ -99,7 +99,7 @@ main() {
     emit_error \
       --category volume-mismatch \
       --detail "Volume jetson_l4t has BSP but no flash images" \
-      --action "Re-run \`make run -- -t prepare\` to finish image generation"
+      --action "Re-run \`just docker run -t prepare\` to finish image generation"
     exit 1
   fi
   # The volume marker tracks jetpack+board, not storage. Catch a storage-mode
@@ -114,7 +114,7 @@ main() {
       --category volume-mismatch \
       --detail "Volume was prepared for storage mode '${recorded_mode}' but jetson.yaml now resolves to '${STORAGE_MODE}'" \
       --action "internal (emmc) and external (nvme/usb) build different images — flashing across modes will fail or corrupt the target" \
-      --action "Rebuild for the new mode: \`make run -- -t prepare\` regenerates the images, then re-run flash" \
+      --action "Rebuild for the new mode: \`just docker run -t prepare\` regenerates the images, then re-run flash" \
       --action "Or revert storage.device in jetson.yaml to the prepared mode (${recorded_mode})"
     exit 1
   fi
@@ -124,7 +124,7 @@ main() {
     emit_error \
       --category hardware \
       --detail "No NVIDIA recovery USB device detected (vendor ${JETSON_USB_VENDOR})" \
-      --action "Run \`make run -- -t probe\` to see what is (or is not) on the bus" \
+      --action "Run \`just docker run -t probe\` to see what is (or is not) on the bus" \
       --action "Power-cycle Jetson into recovery: power off, hold Force-Recovery, tap Reset, release Force-Recovery" \
       --action "Confirm on the host: \`lsusb | grep -i 'NVIDIA Corp'\`" \
       --action "If /dev hotplug is broken in container, restart the container — base v0.39.0 added rslave but old containers stay private"
@@ -149,7 +149,7 @@ main() {
       --detail "Host kernel nfsd module not loaded — l4t_initrd_flash serves the payload over NFS and cannot start its server without it" \
       --action "On the HOST (not in this container) run: sudo modprobe nfsd" \
       --action "Make it persistent across reboots: echo nfsd | sudo tee /etc/modules-load.d/nfsd.conf" \
-      --action "Then re-run: make run -- -t flash"
+      --action "Then re-run: just docker run -t flash"
     exit 1
   fi
   printf '  nfsd kernel support present\n' >&2
@@ -174,7 +174,7 @@ main() {
     emit_error \
       --category validate \
       --detail "INITRD_FLASH_TIMEOUT must be a positive number of seconds, got: ${boot_timeout}" \
-      --action "unset it for the default (600), or e.g. INITRD_FLASH_TIMEOUT=900"
+      --action "In the repo's .env.local on the host: remove it for the default (600), or set e.g. INITRD_FLASH_TIMEOUT=900"
     exit 1
   fi
   _patch_initrd_boot_timeout "${l4t_dir}" "${boot_timeout}"

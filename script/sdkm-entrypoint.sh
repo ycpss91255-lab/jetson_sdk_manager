@@ -3,7 +3,7 @@
 #
 # SDK Manager (cli/gui stages) extracts the L4T rootfs — with a
 # setuid `sudo` and root-owned files — under ~/nvidia/nvidia_sdk, a host
-# bind mount (setup.conf → ./data/nvidia_sdk). On NTFS / exFAT / fuseblk
+# bind mount (setup.toml → ./data/nvidia_sdk). On NTFS / exFAT / fuseblk
 # hosts those attributes are stripped, exactly like the factory path,
 # producing a flashed Jetson whose sudo is broken. Reuse the shared guard
 # (lib/fs.sh), then exec whatever SDK Manager invocation the stage's CMD
