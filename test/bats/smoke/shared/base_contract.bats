@@ -68,5 +68,5 @@ _toml_table() {
   [[ -f "${SETUP_TOML}" ]]
   run _toml_table lifecycle
   assert_success
-  assert_output --partial 'restart = "no"'
+  assert_line 'restart = "no"'
 }

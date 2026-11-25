@@ -13,7 +13,7 @@
 ### Changed
 - **`./jetson` runs the container stages through `script/run.sh`** (overridable as `RUN_BIN`) instead of `make run`; `make` is no longer needed on the host and `./jetson status` no longer asks for it. Every `make run` / `make build` / `make stop` hint and doc now names the `just docker …` equivalent, and `setup.conf` references name `setup.toml`.
 - **`./jetson` sees a failed stage.** It names the stage's script as the command (`run.sh -t flash /opt/jetson_install/flash.sh`), because without one the wrapper's `docker compose up` exits 0 even when the container failed, and a failed `prepare` / `flash` was treated as done.
-- **Ctrl-C during a stage stops `./jetson` with exit 130.** It records the interrupt itself, so `./jetson all` never goes on to `flash` after an interrupted `prepare`, whatever the wrapper reports.
+- **Ctrl-C during a stage stops `./jetson` with exit 130.** It records the interrupt itself, and also treats exit 130 from the stage as one, so `./jetson all` never goes on to `flash` after an interrupted `prepare`.
 - **`INITRD_FLASH_TIMEOUT` and `JETSON_ALLOW_NON_UNIX_FS` overrides go in `.env.local`.** Since the base upgrade a value exported in the host shell no longer reaches the container; `./jetson` warns and prints the line to add.
 - `host_setup.sh` stale-`/srv` check (#76) compares device+inode instead of `findmnt` SOURCE strings, so a loop root or a bind-of-bind no longer trips it on re-run.
 - `host_setup.sh` / `host_teardown.sh` / `clean.sh` are now shellchecked and their bats suites run in `devel-test` (they used to skip).

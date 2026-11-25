@@ -97,7 +97,7 @@ ARG CONFIG_DIR="/tmp/config"
 # second overlays <repo>/config/ on top. File-level merge -- files in
 # <repo>/config/ replace same-path files in /tmp/config/; files only
 # in .base/dist/config/ stay; files only in <repo>/config/ are added.
-# Mental model is the same as setup.conf section-replace, just at
+# Mental model is the same as the setup.toml table overlay, just at
 # file granularity. <repo>/config/ becomes opt-in (init.sh seeds an
 # empty .gitkeep for new repos, not the full tree); existing repos
 # with a full <repo>/config/ snapshot from earlier seed continue to

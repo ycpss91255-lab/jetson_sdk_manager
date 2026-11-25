@@ -545,6 +545,20 @@ EOF
   refute_output --partial 'flash — done'
 }
 
+@test "Ctrl-C that only the container sees (run.sh returns 130) is an interrupt, not a failure" {
+  # 'compose run' puts the terminal in raw mode: ^C goes to the container and
+  # jetson.sh never gets SIGINT, only exit code 130.
+  printf '#!/usr/bin/env bash
+printf "run.sh %%s\n" "$*" >>"${CALLS}"; exit 130
+' >"${RUN_BIN}"
+  WAIT_REC_INTERVAL=0.05 LSUSB_REC_AFTER=1 run "${JETSON}" all
+  assert_failure 130
+  assert_output --partial 'prepare interrupted'
+  refute_output --partial 'prepare failed'
+  run cat "${CALLS}"
+  refute_output --partial 'run.sh -t flash'
+}
+
 @test "status needs docker and lsusb, not make" {
   printf 'hardware:\n  board: agx-orin\nstorage:\n  device: emmc\nuser:\n  password: s3cret\n' >"${L4T_REPO_ROOT}/jetson.yaml"
   LSUSB_OUT="${REC}" run "${JETSON}" status

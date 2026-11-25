@@ -137,15 +137,16 @@ _warn_host_only_env() {
 # base wrapper and return its exit code. The command is the stage's own
 # Dockerfile CMD, named explicitly: without one run.sh uses 'compose up',
 # which exits 0 even when the stage failed, and a failed flash would be
-# called done. An interrupt is recorded here as well, so that after Ctrl-C
-# 'all' can never go on to flash whatever the wrapper reports.
+# called done. An interrupt is recorded here as well (or seen as exit 130), so
+# after Ctrl-C 'all' never goes on to flash.
 _run_stage() {
   local stage="$1" rc=0 interrupted=""
   _warn_host_only_env
   trap 'interrupted=1' INT
   (cd "${_REPO}" && "${RUN_BIN}" -t "${stage}" "/opt/jetson_install/${stage}.sh") || rc=$?
   trap - INT
-  if [[ -n "${interrupted}" ]]; then
+  # 130: the terminal was the container's, so only it saw the Ctrl-C.
+  if [[ -n "${interrupted}" || "${rc}" -eq 130 ]]; then
     printf '\n[jetson] %s interrupted\n' "${stage}" >&2
     exit 130
   fi
