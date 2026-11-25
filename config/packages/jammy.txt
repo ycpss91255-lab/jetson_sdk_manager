@@ -1,2 +1,0 @@
-libasound2
-libcanberra-gtk3-module
