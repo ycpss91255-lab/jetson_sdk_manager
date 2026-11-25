@@ -36,7 +36,7 @@ The store lifecycle (`host_setup.sh` step 0 → `host_teardown.sh` → `clean.sh
 | Level | Where | What it proves | Runs in |
 |---|---|---|---|
 | **Unit** | `test/bats/smoke/shared/base_contract.bats` | No script advertises or calls a `make` target or the removed `setup.conf`; `setup.toml` has no `${...}` in `[environment]` (it would reach the container as literal text) and sets `[lifecycle] restart = "no"` (a finished `flash` must not start again). Reads the repo snapshot `devel-test` copies to `/opt/repo`; fails, never skips, when it is missing. | `devel-test` stage (`just docker build test`) |
-| **Integration** | `test/bats/smoke/shared/jetson_cli.bats` | `./jetson` runs `script/run.sh -t <stage>` from the repo root, propagates its exit code, treats Ctrl-C as a failure although `run.sh` reports it as 0, needs no `make`, and warns about host-shell overrides the container cannot see. | same |
+| **Integration** | `test/bats/smoke/shared/jetson_cli.bats` | `./jetson` runs `script/run.sh -t <stage> /opt/jetson_install/<stage>.sh` from the repo root, propagates its exit code, treats Ctrl-C as a failure whatever `run.sh` reports, needs no `make`, and warns about host-shell overrides the container cannot see. | same |
 
 ## Verification status (per preset)
 
