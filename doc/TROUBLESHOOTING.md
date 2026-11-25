@@ -11,7 +11,7 @@ Companion to the [README](../README.md). Run `./jetson status` first — most of
 ```bash
 ./script/host_setup.sh           # step 0: data/jetson_l4t.img → loop-mounted on data/jetson_l4t
 findmnt ./data/jetson_l4t        # should show FSTYPE ext4, SOURCE /dev/loopN
-make run -- -t prepare
+just docker run -t prepare
 ```
 
 Knobs (environment variables for `host_setup.sh`):
@@ -27,10 +27,22 @@ The mount is not persistent; re-run `host_setup.sh` after a reboot. `host_setup.
 For diagnostic purposes only, `JETSON_ALLOW_NON_UNIX_FS=1` downgrades the abort to a warning:
 
 ```bash
-JETSON_ALLOW_NON_UNIX_FS=1 make run -- -t prepare
+echo 'JETSON_ALLOW_NON_UNIX_FS=1' >> .env.local   # the container does not see the host shell's variables
+just docker run -t prepare
 ```
 
 This **cannot produce a working flash** on a non-unix filesystem. NVIDIA's `apply_binaries.sh` has its own root-ownership check (`find rootfs/etc/passwd -user root -group root`) that aborts step 7/10 once the sample rootfs has extracted under the wrong owner. The escape hatch only exists so a maintainer can run prepare far enough to observe the failure mode empirically; it is not a workaround for the underlying filesystem constraint.
+
+### `INITRD_FLASH_TIMEOUT` / `JETSON_ALLOW_NON_UNIX_FS` set in the shell has no effect
+
+The container reads its environment from the generated `.env` and your `.env.local`, not from the shell that starts it (`./jetson` prints a warning when it sees one of these set). Put the override in `.env.local` at the repo root — gitignored, one `KEY=VALUE` per line, effective on the next run:
+
+```bash
+echo 'INITRD_FLASH_TIMEOUT=900' >> .env.local
+./jetson flash
+```
+
+Remove the line to go back to the default (600 s). `INITRD_FLASH_TIMEOUT must be a positive number of seconds` means the value that did reach the container is not a plain number.
 
 ### `prepare.sh` aborts: volume mismatch
 
@@ -38,7 +50,7 @@ The `.prepared.yaml` marker says the volume was prepared for a different JetPack
 
 ```bash
 ./script/clean.sh l4t
-make run -- -t prepare
+just docker run -t prepare
 ```
 
 ### `chroot: failed to run command 'dpkg': Exec format error`
@@ -56,7 +68,7 @@ Run once per host boot.
 `flash.sh` checks `lsusb` for NVIDIA VID `0955` + a recovery PID (`7023` / `7223` / `7423` / `7523` / `7e19`) and aborts if none is present. Run the `probe` stage to get the same check in isolation — useful for testing different cables / ports without losing the prepare-stage state:
 
 ```bash
-make run -- -t probe
+just docker run -t probe
 ```
 
 It prints every NVIDIA-vendor device on the bus, annotates which ones are in the recovery range, and exits 0 only when at least one is.
@@ -91,14 +103,13 @@ The `flash` stage's `l4t_initrd_flash.sh` serves the flash payload to the Jetson
  * Not starting NFS kernel daemon: no support in current kernel.
 clnt_create: RPC: Program not registered
 NFS server is not running
-make: *** [Makefile:41: run] Error 114
 ```
 
 Load it on the host (not inside the container), then re-run the flash:
 
 ```bash
 sudo modprobe nfsd
-make run -- -t flash
+just docker run -t flash
 ```
 
 Persist across reboots with `echo nfsd | sudo tee /etc/modules-load.d/nfsd.conf`. See [README → Prerequisites](../README.md#prerequisites). `flash.sh` now pre-checks this and aborts early with the same guidance.

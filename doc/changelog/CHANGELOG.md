@@ -8,10 +8,19 @@
 - **`./jetson` — one entry point for the whole flash workflow (#95).** `status` (one-page host readiness + Jetson USB state, ✔ / ⚠ / ✘), `prepare` (host setup + BSP download + image build), `wait-rec`, `flash` (recovery + prepare preflight, NetworkManager guard, ssh hint), `all`, `teardown`, `purge [--yes] [--keep-downloads]`. Thin dispatcher over the existing scripts (`script/jetson.sh`, `script/lib/status.sh`); every step remains runnable by hand.
 - **README rewritten around `./jetson`**: three-command quick start, an "Entering recovery (REC) mode" section with a button-panel diagram and the USB-ID table, "After the flash". Stages / flashing paths / SDK Manager / persistent data / build graph / directory layout moved to `doc/ARCHITECTURE.md`; every troubleshooting entry moved to `doc/TROUBLESHOOTING.md`. zh-TW rewritten to match; zh-CN / ja carry a banner pointing at the new flow.
 - **L4T data store lifecycle on non-unix checkouts (#93).** `host_setup.sh` step 0 now provisions an ext4 image *inside the repo* (`data/jetson_l4t.img`, sparse, `L4T_STORE_SIZE=40G`) and loop-mounts it over `data/jetson_l4t/` when the checkout is on NTFS / exFAT / FAT, recording the choice in `data/.l4t_store`. `L4T_STORE_DIR` opts into a bind-mounted ext4 directory instead. `host_teardown.sh` releases the mount (and removes the empty `/srv/jetson_l4t`); new `clean.sh purge` (`--keep-downloads`) deletes the store + marker for zero residue before `rm -rf <repo>`. New `script/lib/store.sh`, `test/smoke/store_lib.bats`, and a `store-loop-system` CI job that does the real loop mount. README gains a "Removing the repo" section; TEST.md documents the unit / integration / system / acceptance levels.
+- `test/bats/smoke/shared/base_contract.bats` — guards what this repo must get right against the vendored base: no `make` targets or `setup.conf` in the scripts, no `${...}` in `setup.toml` `[environment]`, `[lifecycle] restart = "no"`.
 
 ### Changed
+- **`./jetson` runs the container stages through `script/run.sh`** (overridable as `RUN_BIN`) instead of `make run`; `make` is no longer needed on the host and `./jetson status` no longer asks for it. Every `make run` / `make build` / `make stop` hint and doc now names the `just docker …` equivalent, and `setup.conf` references name `setup.toml`.
+- **Ctrl-C during a stage stops `./jetson` with exit 130.** `run.sh` reports an interrupted foreground stage as exit 0, so without this `./jetson all` would go on to `flash` after an interrupted `prepare`.
+- **`INITRD_FLASH_TIMEOUT` and `JETSON_ALLOW_NON_UNIX_FS` overrides go in `.env.local`.** Since the base upgrade a value exported in the host shell no longer reaches the container; `./jetson` warns and prints the line to add.
 - `host_setup.sh` stale-`/srv` check (#76) compares device+inode instead of `findmnt` SOURCE strings, so a loop root or a bind-of-bind no longer trips it on re-run.
 - `host_setup.sh` / `host_teardown.sh` / `clean.sh` are now shellchecked and their bats suites run in `devel-test` (they used to skip).
+
+### Fixed
+- **`./jetson prepare` / `flash` failed after the base upgrade** because the `Makefile` they called is gone.
+- **`flash` aborted with `INITRD_FLASH_TIMEOUT must be a positive number of seconds`**: the `${VAR:-default}` entries in `setup.toml` `[environment]` reached the container as literal text. Removed; the scripts already carry the defaults.
+- **A finished `flash` container could start again and flash the board a second time**: the base default `restart: unless-stopped` applied to every stage. `setup.toml` now sets `[lifecycle] restart = "no"` (this covers `prepare`, `probe`, `cli` and `gui` too).
 
 ### Removed
 - The manual `sudo mount --bind /var/lib/jetson_l4t ./data/jetson_l4t` recipe from the README — it put repo data outside the repo and broke `host_setup.sh` idempotency.

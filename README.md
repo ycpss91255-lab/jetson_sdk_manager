@@ -33,7 +33,7 @@ cd jetson_sdk_manager
 ./jetson flash       # write the images over USB. ~10 min
 ```
 
-`./jetson all` waits for the board to show up in recovery, then does prepare and flash in a row. Everything `./jetson` runs is an ordinary script or `make` target — see [Going deeper](#going-deeper).
+`./jetson all` waits for the board to show up in recovery, then does prepare and flash in a row. Everything `./jetson` runs is an ordinary script or `just docker` command — see [Going deeper](#going-deeper).
 
 What it takes: an x86_64 Linux host with Docker (usable without `sudo`), one USB-C cable, ~20 GB free, and roughly 40 minutes the first time (later runs skip the download and the finished steps). The board has to be in recovery for the whole run: prepare's final step reads the board spec (ID / SKU / revision) from its EEPROM, and flash writes to it. A checkout on NTFS / exFAT is fine — `prepare` handles it ([how](#prerequisites)).
 
@@ -95,7 +95,7 @@ Done with the host? `./jetson teardown` undoes the kernel / mount changes in thi
 
 ## Prerequisites
 
-- **x86_64 Linux** host (not WSL, not a VM on macOS for the flash step), **Docker ≥ 20.10** usable without `sudo` (`docker run --rm hello-world`; else `sudo usermod -aG docker "$USER"` and re-login), `make`, `lsusb`.
+- **x86_64 Linux** host (not WSL, not a VM on macOS for the flash step), **Docker ≥ 20.10** usable without `sudo` (`docker run --rm hello-world`; else `sudo usermod -aG docker "$USER"` and re-login), `lsusb`. [`just`](https://github.com/casey/just) is only needed for the manual `just docker …` commands; `./jetson` does not use it.
 - **~20 GB free** for the BSP, rootfs and generated images; ~4 GB of that is the one-time download.
 - **`./data/jetson_l4t/` must be ext4 / xfs / btrfs** — `apply_binaries.sh` writes setuid + root-owned files that NTFS / exFAT / FAT silently drop, producing a Jetson whose `sudo` is broken. You do not have to move the repo: on such a checkout `./jetson prepare` (via `host_setup.sh`) creates a sparse ext4 image **inside the repo** (`data/jetson_l4t.img`, `L4T_STORE_SIZE=40G` logical) and loop-mounts it over `data/jetson_l4t/`. Needs `e2fsprogs` + `util-linux` (`mkfs.ext4`, `losetup`). Prefer a directory on another ext4 disk? `L4T_STORE_DIR=/path/on/ext4 ./jetson prepare`. The loop path is slower than a native ext4 checkout, mostly during rootfs extraction.
 - **Per boot**: `./jetson prepare` re-runs `host_setup.sh` (QEMU binfmt, `nfsd`, USB autosuspend / buffer, the `/srv/jetson_l4t` bridge, the data store mount, the host NFS export below). Nothing persists across reboots; `./jetson status` tells you when it is needed again.
@@ -177,7 +177,7 @@ After `purge`, `rm -rf` of the checkout leaves **no residue**: no mount, no loop
 
 Do **not** `rm -rf` the checkout while `./data/jetson_l4t` is still mounted: `rm` recurses *through* the mount (deleting the store's contents, which is what you wanted) and then fails on the mountpoint itself, leaving a loop device attached to an unlinked image until you `umount`. Run `purge` (or at least `host_teardown.sh`) first. Also note `/srv/jetson_l4t` is one fixed path, so two checkouts cannot be set up on the same host at the same time.
 
-Two deliberate exceptions to "everything under the checkout": Docker images (`make build` output — `docker rmi` if you want them gone), and a store you explicitly placed elsewhere with `L4T_STORE_DIR`. For the latter, `purge` empties it through the same alpine pass and then only `rmdir`s the empty directory — it never `rm -rf`s a path read from the marker — so if anything else was put in that directory, purge stops and tells you.
+Two deliberate exceptions to "everything under the checkout": Docker images (`just docker build` output — `docker rmi` if you want them gone), and a store you explicitly placed elsewhere with `L4T_STORE_DIR`. For the latter, `purge` empties it through the same alpine pass and then only `rmdir`s the empty directory — it never `rm -rf`s a path read from the marker — so if anything else was put in that directory, purge stops and tells you.
 
 ## Troubleshooting
 

@@ -9,7 +9,8 @@
 #      https://developer.nvidia.com/embedded/jetson-linux-archive
 #   2. Append a new key under `jetpack_to_l4t`
 #   3. Commit + tag a downstream release so users get the new option
-#      via `git pull && make build`
+#      via `git pull`, then `just docker build -t prepare` and
+#      `just docker build -t flash` (this file is baked into both)
 #
 # Adding a new board:
 #   1. Confirm the canonical `--target` name in NVIDIA's BSP docs

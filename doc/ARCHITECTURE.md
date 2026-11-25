@@ -4,22 +4,22 @@ How the repo is put together. For *using* it, see the [README](../README.md).
 
 ## Under the hood: the commands `./jetson` runs
 
-`./jetson` is a thin dispatcher (`script/jetson.sh`); every step is an existing script or `make` target you can run yourself.
+`./jetson` is a thin dispatcher (`script/jetson.sh`); every step is an existing script you can run yourself. It starts the container stages through `script/run.sh`, the wrapper behind `just docker run`.
 
 | `./jetson …` | Runs |
 |---|---|
 | `status` | `lib/status.sh` checks + `lsusb -d 0955:` (same PID list as `script/probe.sh`) + `lib/nfs_export.sh::nfs_export_status` (host `rpc.mountd` vs. the L4T exports) |
-| `prepare` | preflight (a Jetson in recovery, unless `--no-board`) → `sudo -v` → `./script/host_setup.sh` → `./script/init_data_dirs.sh` → `make run -- -t prepare` (auto-builds the image) |
+| `prepare` | preflight (a Jetson in recovery, unless `--no-board`) → `sudo -v` → `./script/host_setup.sh` → `./script/init_data_dirs.sh` → `./script/run.sh -t prepare` (auto-builds the image) |
 | `wait-rec` | polls `lsusb` for a recovery PID |
-| `flash` | preflight (recovery PID, `images` phase in `.prepared.yaml`) → `sudo -v` → `lib/nfs_export.sh::nfs_export_on` (host NFS export of the L4T tree, re-done every flash — [#101](https://github.com/ycpss91255-lab/jetson_sdk_manager/issues/101)) → `./script/nm_flash_guard.sh auto` → `./script/usb_ss_guard.sh auto` → `make run -- -t flash` |
+| `flash` | preflight (recovery PID, `images` phase in `.prepared.yaml`) → `sudo -v` → `lib/nfs_export.sh::nfs_export_on` (host NFS export of the L4T tree, re-done every flash — [#101](https://github.com/ycpss91255-lab/jetson_sdk_manager/issues/101)) → `./script/nm_flash_guard.sh auto` → `./script/usb_ss_guard.sh auto` → `./script/run.sh -t flash` |
 | `teardown` | `./script/host_teardown.sh` (incl. the host NFS unexport, `nm_flash_guard.sh enable` + `usb_ss_guard.sh enable`) |
 | `purge` | `./script/clean.sh purge [--keep-downloads]` |
 
 Other useful manual commands:
 
 ```bash
-make build -- -t <stage>      # rebuild one stage image (one -t per invocation)
-make run -- -t probe          # the recovery check on its own (or: bash ./script/probe.sh on the host)
+just docker build -t <stage>  # rebuild one stage image (one -t per invocation)
+just docker run -t probe      # the recovery check on its own (or: bash ./script/probe.sh on the host)
 ./script/nm_flash_guard.sh status|disable|enable|auto|watch
 ./script/usb_ss_guard.sh status|disable|enable|auto
 ./script/clean.sh build|rootfs|l4t|all|purge
@@ -49,7 +49,7 @@ The flash initrd's USB gadget (`0955:7035`) only needs USB 2, but it also tries 
 
 | Stage | Purpose | Jetson required |
 |---|---|---|
-| `devel` | Flash tooling (`l4t_initrd_flash.sh` dependencies). Default `make build` target. | No |
+| `devel` | Flash tooling (`l4t_initrd_flash.sh` dependencies). Default `just docker build` target. | No |
 | `devel-test` | Lint (`shellcheck` + `hadolint`) + bats smoke tests. CI-only. | No |
 | `prepare` | Phase 1 — download BSP + sample rootfs, `apply_binaries.sh`, `l4t_create_default_user.sh`, `l4t_initrd_flash --no-flash`. | **Yes, in recovery** — the last step reads the board spec from the EEPROM (unless `BOARDID FAB BOARDSKU BOARDREV` are exported) |
 | `flash` | Phase 2 — `l4t_initrd_flash --flash-only`. | **Yes**, in APX recovery |
@@ -80,11 +80,23 @@ The **prepare** stage uses the BSP's own `l4t_initrd_flash.sh --no-flash` to bui
 The factory `prepare` / `flash` stages are the supported default. SDK Manager is shipped as two **best-effort** stages for users who prefer NVIDIA's own tool or want to browse the JetPack `.deb` catalog: `cli` (`sdkmanager --cli`) and `gui` (the graphical client). Both build on `sdkm-base`, which adds the `iptables` + `dnsutils` that SDK Manager's in-Docker device-mode forwarding needs.
 
 ```bash
-make build -- -t gui    # or: -t cli
-make run -- -t gui      # or: -t cli
+just docker build -t gui    # or: -t cli
+just docker run -t gui      # or: -t cli
 ```
 
 Best-effort means: CI builds the stages and smokes `sdkmanager --ver`, but a real SDK Manager flash is manual and may drift with NVIDIA upstream. For a GUI/CLI flash to succeed, set up the same host prerequisites as the factory path first — `./script/host_setup.sh` and `./script/nm_flash_guard.sh auto` — and sign in with your NVIDIA Developer account. The `gui` entrypoint prints a banner with these steps, then (interactively) waits for Enter before launching; extra positional args after `-t gui` are forwarded to `sdkmanager-gui` (after `--no-sandbox`). GUI mode needs an X11 session on the host (auto-forwarded by the base template).
+
+## Runtime configuration
+
+`setup.toml` is the source of truth; `just docker setup apply` derives `.env`, `.env.generated` and `compose.yaml` from it (`just docker run` / `build` re-derive them when it changed). Two things are deliberate here:
+
+- **`[lifecycle] restart = "no"`** — the base default (`unless-stopped`) would start `flash` again as soon as it finished and write the board a second time. The stages are one-shot jobs; none of them may restart on its own. `test/bats/smoke/shared/base_contract.bats` guards it.
+- **Per-machine environment goes in `.env.local`** (gitignored, one `KEY=VALUE` per line, effective on the next run). `[environment]` values reach the container as literal text, so `${VAR:-default}` does not work there, and a variable exported in the host shell does not reach the container either — `./jetson` warns when it sees one:
+
+  | Variable | Default (in the scripts) | Effect |
+  |---|---|---|
+  | `INITRD_FLASH_TIMEOUT` | `600` | Seconds `flash` waits for the board to come back as the initrd flash device. |
+  | `JETSON_ALLOW_NON_UNIX_FS` | `0` | `1` downgrades the non-unix-filesystem abort to a warning (diagnostics only, see [TROUBLESHOOTING](TROUBLESHOOTING.md)). |
 
 ## Persistent Data
 
@@ -134,7 +146,8 @@ jetson_sdk_manager/
 ├── jetson.yaml -> config/jetson/agx-orin-emmc.yaml   # symlink; switch presets here
 ├── compose.yaml                 # Docker Compose (derived, gitignored)
 ├── Dockerfile                   # sys → devel-base → devel → {prepare, flash, probe, sdkm-base → cli/gui}
-├── Makefile -> .base/script/docker/Makefile
+├── justfile -> script/justfile
+├── setup.toml                   # Runtime config — source of truth
 ├── .base/                       # Shared template (git subtree)
 ├── data/                        # Persistent state (gitignored)
 │   ├── jetson_l4t/              #   BSP + rootfs + flash images
@@ -144,7 +157,6 @@ jetson_sdk_manager/
 │   ├── nvsdkm/                  #   SDK Manager login session (cli/gui)
 │   └── nvidia_sdk/              #   SDK Manager install folder (cli/gui)
 ├── config/
-│   ├── docker/setup.conf        # Runtime config — source of truth
 │   ├── jetson/                  # Flash presets + schema
 │   │   ├── _example.yaml        #   Canonical schema with comments
 │   │   ├── _l4t_mapping.yaml    #   JetPack → L4T release / URLs (build-time)

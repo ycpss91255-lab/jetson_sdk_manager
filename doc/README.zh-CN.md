@@ -69,16 +69,16 @@ happy path，以 AGX Orin devkit 烧录到 eMMC 为例。（其他 preset 步骤
 ./script/init_data_dirs.sh                            # 首次才需要：以你的身份(非 root)预建 data/ 挂载点
 ln -sf config/jetson/agx-orin-emmc.yaml jetson.yaml   # 选一个 preset
 
-make run -- -t prepare    # 阶段 1：下载 BSP + 生成烧录 image（约 30 分钟）
+just docker run -t prepare    # 阶段 1：下载 BSP + 生成烧录 image（约 30 分钟）
 # 将 Jetson 进入 APX recovery（REC）：断电、按住 REC、接电、放开
 ./script/nm_flash_guard.sh auto   # 阻止 NetworkManager 拆掉 USB 传输；板子开机后自动恢复
-make run -- -t flash      # 阶段 2：写入 Jetson（约 10 分钟）
+just docker run -t flash      # 阶段 2：写入 Jetson（约 10 分钟）
 
 # ...或在 Jetson 已进入 APX recovery（REC）的情况下,一条命令跑完两阶段:
-make run -- -t prepare && ./script/nm_flash_guard.sh auto && make run -- -t flash
+just docker run -t prepare && ./script/nm_flash_guard.sh auto && just docker run -t flash
 ```
 
-> `./script/host_setup.sh` 一次跑完每次开机要做的 host 前置(见 [前置要求](#前置要求));`make run` 首次会自动 build 缺少的 stage image。想看有解说的完整流程——各 stage 的 `make build`、首次开机装 `nvidia-jetpack`、headless 连接、中断续跑——见 [快速开始](#快速开始)。两种 flash 机制的差异见 [两条烧录路径](#两条烧录路径)。
+> `./script/host_setup.sh` 一次跑完每次开机要做的 host 前置(见 [前置要求](#前置要求));`just docker run` 首次会自动 build 缺少的 stage image。想看有解说的完整流程——各 stage 的 `just docker build`、首次开机装 `nvidia-jetpack`、headless 连接、中断续跑——见 [快速开始](#快速开始)。两种 flash 机制的差异见 [两条烧录路径](#两条烧录路径)。
 
 ## 前置要求
 
@@ -92,7 +92,7 @@ make run -- -t prepare && ./script/nm_flash_guard.sh auto && make run -- -t flas
   漏跑的症状:没 QEMU → `prepare` 出现 `chroot: ... Exec format error`;没 `nfsd` → `flash` 出现 `RPC: Program not registered` / `Return value 114`;没桥接 `/srv/jetson_l4t` → Jetson 的 initrd `mount.nfs` 失败并报 `No such file or directory`。`prepare` 只需要 QEMU 那一步。
 
   **两种不同的「Error 114」成因 —— 不要混淆。** (a) **在 `flash` 一开始**，`Error 114` 伴随 `RPC: Program not registered` / `NFS server is not running`，表示 host 的 `nfsd` 模块没载入 —— 用 `host_setup.sh`（或 `sudo modprobe nfsd`）修复。(b) **在传输进行到一半**，以 `Error 114` / `NFS server` 失败形式出现的卡死，几乎总是 **NetworkManager** 把 USB 链路拆掉，而不是 `nfsd` —— 用 `./script/nm_flash_guard.sh auto` 修复。见 [疑难排解](#疑难排解) 中两条对应条目。
-- **NetworkManager host 上的 `./script/nm_flash_guard.sh auto` —— 实际上是必须的。** 多数笔电 / 桌机跑 NetworkManager，它会对 Jetson 的 USB gadget 接口做 DHCP 探测并在烧录途中拆掉链路。在 `make run -- -t flash` 前跑 `nm_flash_guard.sh auto`；它会在本次 flash 期间把接口标记为 unmanaged，并在板子开机后自动恢复 NM。只有在你已确认 host 不跑 NetworkManager 时才可跳过。
+- **NetworkManager host 上的 `./script/nm_flash_guard.sh auto` —— 实际上是必须的。** 多数笔电 / 桌机跑 NetworkManager，它会对 Jetson 的 USB gadget 接口做 DHCP 探测并在烧录途中拆掉链路。在 `just docker run -t flash` 前跑 `nm_flash_guard.sh auto`；它会在本次 flash 期间把接口标记为 unmanaged，并在板子开机后自动恢复 NM。只有在你已确认 host 不跑 NetworkManager 时才可跳过。
 - **Jetson 进入 APX recovery（REC）**——`prepare` 与 `flash` 都需要：`prepare` 的最后一步通过 USB 读取板子的 BOARDID/FAB/BOARDSKU/BOARDREV(自行 export 这四个变量时可用 `./jetson prepare --no-board`)。
 
 ## 配置 `jetson.yaml`
@@ -138,7 +138,7 @@ storage:
 
 ## 快速开始
 
-> **`make run` 之前：** 每次开机先跑一次 `./script/host_setup.sh`(QEMU binfmt、`nfsd`、USB 调整 —— 见 [前置要求](#前置要求)),首次再跑 `./script/init_data_dirs.sh`(否则 Docker daemon 会以 root 建立 `data/` 挂载目录,容器内的非 root 用户将无法访问)。
+> **`just docker run` 之前：** 每次开机先跑一次 `./script/host_setup.sh`(QEMU binfmt、`nfsd`、USB 调整 —— 见 [前置要求](#前置要求)),首次再跑 `./script/init_data_dirs.sh`(否则 Docker daemon 会以 root 建立 `data/` 挂载目录,容器内的非 root 用户将无法访问)。
 
 ```bash
 ./script/host_setup.sh      # 每次开机一次:QEMU binfmt + nfsd + USB 调整(在 host 上跑)
@@ -146,16 +146,16 @@ storage:
 ln -sf config/jetson/agx-orin-emmc.yaml jetson.yaml
 
 # 阶段 1 — host 端生成 image（不需连 Jetson）
-make build -- -t prepare
-make run -- -t prepare
+just docker build -t prepare
+just docker run -t prepare
 
 # 阶段 2 — 写入 Jetson
 # Jetson 进入 APX recovery：断电、按住 REC、接电、放开。
-make build -- -t probe   # 一次只能 build 一个 stage（最后的 -t 生效），分开 build
-make build -- -t flash
-make run -- -t probe     # 确认 Jetson 在 APX (exit 0 = ready to flash)
+just docker build -t probe   # 一次只能 build 一个 stage（最后的 -t 生效），分开 build
+just docker build -t flash
+just docker run -t probe     # 确认 Jetson 在 APX (exit 0 = ready to flash)
 ./script/nm_flash_guard.sh auto   # 见下方「NetworkManager」说明
-make run -- -t flash
+just docker run -t flash
 ```
 
 在跑 NetworkManager 的 host 上（多数笔电 / 桌机），flash 可能在中途以一个误导的 `NFS server` / `Error 114` 失败卡住：NM 试图对 Jetson 的 USB gadget 接口做 DHCP、超时，并在传输途中移除该地址。`./script/nm_flash_guard.sh auto` 会把该接口标记为 unmanaged 以供本次 flash 使用，然后**在板子重新 enumerate 为已开机设备（`0955:7020`）的那一刻自动重新启用 NM** —— 这样 host 会立即拿到 `192.168.55.x` 让你 SSH 进去，不需手动 `enable`。一个 timeout（默认 1800s，可用第一个参数覆盖）会在 flash 中止时也恢复 NM。`disable` / `enable` / `around` / `status` 子命令见 [`nm_flash_guard.sh`](script/nm_flash_guard.sh)。
@@ -183,7 +183,7 @@ Host 端会自动在 USB 网络接口配上 `192.168.55.x`（用 `ip a` 确认�
 
 ### 中断后续跑
 
-每个阶段会将进度记录在 `data/jetson_l4t/.../.prepared.yaml`。重新执行 `make run -- -t prepare` 会跳过已完成步骤（BSP 下载、rootfs 解压、`apply_binaries.sh`、user 建立、image 生成）。若 JetPack / board 改变，会被检测为 mismatch 并以 action 消息中止，提示执行 `./script/clean.sh l4t`。
+每个阶段会将进度记录在 `data/jetson_l4t/.../.prepared.yaml`。重新执行 `just docker run -t prepare` 会跳过已完成步骤（BSP 下载、rootfs 解压、`apply_binaries.sh`、user 建立、image 生成）。若 JetPack / board 改变，会被检测为 mismatch 并以 action 消息中止，提示执行 `./script/clean.sh l4t`。
 
 ## Verification status
 
@@ -223,7 +223,7 @@ Host 端会自动在 USB 网络接口配上 `192.168.55.x`（用 `ip a` 确认�
 
 | Stage | 用途 | 需连 Jetson |
 |---|---|---|
-| `devel` | 烧录工具（`l4t_initrd_flash.sh` 依赖）。`make build` 默认 target。 | 否 |
+| `devel` | 烧录工具（`l4t_initrd_flash.sh` 依赖）。`just docker build` 默认 target。 | 否 |
 | `devel-test` | Lint（`shellcheck` + `hadolint`）+ bats smoke tests。仅 CI。 | 否 |
 | `prepare` | 阶段 1 — 下载 BSP + sample rootfs、`apply_binaries.sh`、`l4t_create_default_user.sh`、`l4t_initrd_flash --no-flash`。 | 否 |
 | `flash` | 阶段 2 — `l4t_initrd_flash --flash-only`。 | **是**，APX recovery |
@@ -252,8 +252,8 @@ Host 端会自动在 USB 网络接口配上 `192.168.55.x`（用 `ip a` 确认�
 工厂 `prepare` / `flash` stage 是受支持的默认。SDK Manager 以两个 **best-effort** stage 提供给偏好 NVIDIA 自家工具、或想浏览 JetPack `.deb` 组件目录的用户：`cli`（`sdkmanager --cli`）与 `gui`（图形客户端）。两者都构建于 `sdkm-base` 之上，后者加入了 SDK Manager 在 Docker 内做 device-mode forwarding 所需的 `iptables` + `dnsutils`。
 
 ```bash
-make build -- -t gui    # 或: -t cli
-make run -- -t gui      # 或: -t cli
+just docker build -t gui    # 或: -t cli
+just docker run -t gui      # 或: -t cli
 ```
 
 Best-effort 的含义是：CI 会 build 这些 stage 并 smoke `sdkmanager --ver`，但真正的 SDK Manager 烧录是手动的，且可能随 NVIDIA 上游漂移。要让 GUI/CLI 烧录成功，请先设好与工厂路径相同的 host 前置 —— `./script/host_setup.sh` 与 `./script/nm_flash_guard.sh auto` —— 并以你的 NVIDIA Developer 账号登录。`gui` entrypoint 会打印一个含这些步骤的 banner，然后（在交互模式下）等待按 Enter 才启动；`-t gui` 后多出的位置参数会被转发给 `sdkmanager-gui`（接在 `--no-sandbox` 之后）。GUI 模式需要 host 上的 X11 session（由 base template 自动转发）。
@@ -305,7 +305,7 @@ graph TD
 详见 [TEST.md](test/TEST.md)。
 
 ```bash
-make build test
+just docker build test
 ```
 
 `devel-test` stage 对 `devel` image 跑 bats 测试；两个 `sdkmanager` 断言会在此被 skip（只在 `cli` / `gui` image 内重跑 bats 时才会执行）。
@@ -317,7 +317,8 @@ jetson_sdk_manager/
 ├── jetson.yaml -> config/jetson/agx-orin-emmc.yaml   # symlink；切换 preset
 ├── compose.yaml                 # Docker Compose（衍生，gitignored）
 ├── Dockerfile                   # sys → devel-base → devel → {prepare, flash, probe, sdkm-base → cli/gui}
-├── Makefile -> .base/script/docker/Makefile
+├── justfile -> script/justfile
+├── setup.toml                   # 运行期配置 — source of truth
 ├── .base/                       # 共用模板（git subtree）
 ├── data/                        # 持久化状态（gitignored）
 │   ├── jetson_l4t/              #   BSP + rootfs + 烧录 image
@@ -325,7 +326,6 @@ jetson_sdk_manager/
 │   ├── nvsdkm/                  #   SDK Manager 登录 session（cli/gui）
 │   └── nvidia_sdk/              #   SDK Manager 安装目录（cli/gui）
 ├── config/
-│   ├── docker/setup.conf        # 运行期配置 — source of truth
 │   ├── jetson/                  # 烧录 preset 与 schema
 │   │   ├── _example.yaml        #   含注释的 canonical schema
 │   │   ├── _l4t_mapping.yaml    #   JetPack → L4T release / URL（build-time）
@@ -368,7 +368,7 @@ jetson_sdk_manager/
 ```bash
 ./script/host_setup.sh           # step 0：data/jetson_l4t.img → loop-mount 到 data/jetson_l4t
 findmnt ./data/jetson_l4t        # 应显示 FSTYPE ext4、SOURCE /dev/loopN
-make run -- -t prepare
+just docker run -t prepare
 ```
 
 可调参数：`L4T_STORE_SIZE`（默认 `40G`，最小 20G）、`L4T_STORE_DIR`（改用另一块 ext4 盘上的目录，bind-mount）、`L4T_STORE_BACKEND`（强制后端）。挂载不持久，重启后再跑一次 `host_setup.sh`；`./script/host_teardown.sh` 卸载、`./script/clean.sh purge`（`--keep-downloads` 保留 tarball）删除映像与 marker，之后 `rm -rf <repo>` 零残留。完整说明见英文 README 的 "Prerequisites" 与 "Removing the repo"。
@@ -376,7 +376,8 @@ make run -- -t prepare
 仅供诊断用途，`JETSON_ALLOW_NON_UNIX_FS=1` 把 abort 降为警告：
 
 ```bash
-JETSON_ALLOW_NON_UNIX_FS=1 make run -- -t prepare
+echo 'JETSON_ALLOW_NON_UNIX_FS=1' >> .env.local   # 容器不会收到 host shell 的变量
+just docker run -t prepare
 ```
 
 **此 flag 不能在非 unix 文件系统上产出可用的 flash**。NVIDIA `apply_binaries.sh` 自己会用 `find rootfs/etc/passwd -user root -group root` 检查 rootfs ownership，sample rootfs 解压到错误的 owner 之后它会在第 7/10 步自行 abort。这道 escape hatch 只是让 maintainer 能跑到那一步实证失败模式，不是绕过 filesystem 限制的方法。
@@ -387,7 +388,7 @@ JETSON_ALLOW_NON_UNIX_FS=1 make run -- -t prepare
 
 ```bash
 ./script/clean.sh l4t
-make run -- -t prepare
+just docker run -t prepare
 ```
 
 ### `chroot: failed to run command 'dpkg': Exec format error`
@@ -405,7 +406,7 @@ docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 `flash.sh` 会检查 `lsusb` 是否出现 NVIDIA VID `0955` + recovery PID（`7023` / `7223` / `7423` / `7523` / `7e19`），若无则中止。可以单独跑 `probe` stage 做同样检查 — 测试不同线材 / port 时不用每次都跑完整 flash 流程：
 
 ```bash
-make run -- -t probe
+just docker run -t probe
 ```
 
 它会列出 bus 上所有 NVIDIA-vendor 设备, 标注哪些在 recovery 范围, 且只有至少一个在 recovery 时才 exit 0。
@@ -440,14 +441,13 @@ Recovery mode 走 USB 2.0（480 Mbps），这是正常的 — APX 模式下 USB 
  * Not starting NFS kernel daemon: no support in current kernel.
 clnt_create: RPC: Program not registered
 NFS server is not running
-make: *** [Makefile:41: run] Error 114
 ```
 
 在 host 上(不是容器内)载入它,再重跑 flash:
 
 ```bash
 sudo modprobe nfsd
-make run -- -t flash
+just docker run -t flash
 ```
 
 用 `echo nfsd | sudo tee /etc/modules-load.d/nfsd.conf` 让它重开机后仍生效。见 [前置要求](#前置要求)。`flash.sh` 现在会先检查并以相同指引提早中止。

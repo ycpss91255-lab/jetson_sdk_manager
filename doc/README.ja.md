@@ -71,16 +71,16 @@ eMMC へフラッシュする AGX Orin devkit のハッピーパス。（他の 
 ./script/init_data_dirs.sh                            # 初回のみ：data/ マウント点を非 root の自分で先に作成
 ln -sf config/jetson/agx-orin-emmc.yaml jetson.yaml   # preset を 1 つ選ぶ
 
-make run -- -t prepare    # フェーズ 1：BSP ダウンロード + フラッシュイメージ生成（約 30 分）
+just docker run -t prepare    # フェーズ 1：BSP ダウンロード + フラッシュイメージ生成（約 30 分）
 # Jetson を APX recovery (REC) に入れる：電源オフ、REC を押し続ける、電源を再接続、離す
 ./script/nm_flash_guard.sh auto   # NetworkManager が USB 転送を破壊するのを防ぐ；ボード起動時に自動復帰
-make run -- -t flash      # フェーズ 2：Jetson に書き込み（約 10 分）
+just docker run -t flash      # フェーズ 2：Jetson に書き込み（約 10 分）
 
 # ...または Jetson を APX recovery (REC) に入れた状態で、1 コマンドで両フェーズを実行:
-make run -- -t prepare && ./script/nm_flash_guard.sh auto && make run -- -t flash
+just docker run -t prepare && ./script/nm_flash_guard.sh auto && just docker run -t flash
 ```
 
-> `./script/host_setup.sh` は boot ごとの host 前提を一括実行します（[前提条件](#前提条件) 参照）；`make run` は初回に不足している stage image を自動 build します。解説付きの完全な手順——各 stage の `make build`、初回起動後の `nvidia-jetpack` インストール、headless 接続、中断後の再開——は [クイックスタート](#クイックスタート) を参照。2 つのフラッシュ機構の違いは [2 つのフラッシュ経路](#2-つのフラッシュ経路) を参照。
+> `./script/host_setup.sh` は boot ごとの host 前提を一括実行します（[前提条件](#前提条件) 参照）；`just docker run` は初回に不足している stage image を自動 build します。解説付きの完全な手順——各 stage の `just docker build`、初回起動後の `nvidia-jetpack` インストール、headless 接続、中断後の再開——は [クイックスタート](#クイックスタート) を参照。2 つのフラッシュ機構の違いは [2 つのフラッシュ経路](#2-つのフラッシュ経路) を参照。
 
 ## 前提条件
 
@@ -94,7 +94,7 @@ make run -- -t prepare && ./script/nm_flash_guard.sh auto && make run -- -t flas
   スキップ時の症状:QEMU なし → `prepare` で `chroot: ... Exec format error`;`nfsd` なし → `flash` で `RPC: Program not registered` / `Return value 114`;`/srv/jetson_l4t` ブリッジなし → Jetson の initrd の `mount.nfs` が `No such file or directory` で失敗。`prepare` は QEMU のステップだけが必要です。
 
   **2 種類の「Error 114」原因 — 混同しないこと。** (a) **`flash` のごく開始時点**で、`RPC: Program not registered` / `NFS server is not running` を伴う `Error 114` は、host の `nfsd` モジュールがロードされていないことを意味します — `host_setup.sh`（または `sudo modprobe nfsd`）で修正。 (b) **転送の途中**で、`Error 114` / `NFS server` 失敗として現れる停止は、ほぼ常に `nfsd` ではなく **NetworkManager** が USB リンクを破壊しているのが原因です — `./script/nm_flash_guard.sh auto` で修正。対応する 2 つの [トラブルシューティング](#トラブルシューティング) 項目を参照。
-- **NetworkManager の host では `./script/nm_flash_guard.sh auto` — 事実上必須。** ほとんどのラップトップ / デスクトップは NetworkManager を実行しており、これが Jetson の USB gadget インターフェースを DHCP プローブしてフラッシュの途中でリンクを破壊します。`make run -- -t flash` の前に `nm_flash_guard.sh auto` を実行してください；これはフラッシュの間そのインターフェースを unmanaged にマークし、ボード起動時に NM を自動復元します。host が NetworkManager を実行していないことを確認している場合のみスキップしてください。
+- **NetworkManager の host では `./script/nm_flash_guard.sh auto` — 事実上必須。** ほとんどのラップトップ / デスクトップは NetworkManager を実行しており、これが Jetson の USB gadget インターフェースを DHCP プローブしてフラッシュの途中でリンクを破壊します。`just docker run -t flash` の前に `nm_flash_guard.sh auto` を実行してください；これはフラッシュの間そのインターフェースを unmanaged にマークし、ボード起動時に NM を自動復元します。host が NetworkManager を実行していないことを確認している場合のみスキップしてください。
 - **Jetson が APX recovery (REC) に入っていること** — `prepare` と `flash` の両方で必要:`prepare` の最終ステップは USB 経由でボードの BOARDID/FAB/BOARDSKU/BOARDREV を読み取ります(これらを自分で export する場合は `./jetson prepare --no-board`)。
 
 ## `jetson.yaml` の設定
@@ -140,7 +140,7 @@ storage:
 
 ## クイックスタート
 
-> **`make run` の前に：** boot ごとに `./script/host_setup.sh` を 1 回実行（QEMU binfmt、`nfsd`、USB 調整 — [前提条件](#前提条件) 参照）、初回は `./script/init_data_dirs.sh` も実行（さもないと Docker daemon が `data/` マウント点を root で作成し、コンテナ内の非 root ユーザーがアクセスできなくなります）。
+> **`just docker run` の前に：** boot ごとに `./script/host_setup.sh` を 1 回実行（QEMU binfmt、`nfsd`、USB 調整 — [前提条件](#前提条件) 参照）、初回は `./script/init_data_dirs.sh` も実行（さもないと Docker daemon が `data/` マウント点を root で作成し、コンテナ内の非 root ユーザーがアクセスできなくなります）。
 
 ```bash
 ./script/host_setup.sh      # boot ごとに 1 回:QEMU binfmt + nfsd + USB 調整(host 上で実行)
@@ -148,16 +148,16 @@ storage:
 ln -sf config/jetson/agx-orin-emmc.yaml jetson.yaml
 
 # フェーズ 1 — host 側でイメージ生成（Jetson 接続不要）
-make build -- -t prepare
-make run -- -t prepare
+just docker build -t prepare
+just docker run -t prepare
 
 # フェーズ 2 — Jetson へ書き込み
 # Jetson を APX recovery に：電源オフ、REC を押しながら、電源を再接続、離す。
-make build -- -t probe   # 一度に build できる stage は 1 つ（最後の -t が有効）、分けて build
-make build -- -t flash
-make run -- -t probe     # Jetson が APX にあるか確認（成功時 exit 0）
+just docker build -t probe   # 一度に build できる stage は 1 つ（最後の -t が有効）、分けて build
+just docker build -t flash
+just docker run -t probe     # Jetson が APX にあるか確認（成功時 exit 0）
 ./script/nm_flash_guard.sh auto   # 下の「NetworkManager」の注記参照
-make run -- -t flash
+just docker run -t flash
 ```
 
 NetworkManager を実行している host（ほとんどのラップトップ / デスクトップ）では、フラッシュが途中で停止し、紛らわしい `NFS server` / `Error 114` 失敗になることがあります：NM が Jetson の USB gadget インターフェースを DHCP しようとしてタイムアウトし、転送の途中でアドレスを削除するためです。`./script/nm_flash_guard.sh auto` はフラッシュの間そのインターフェースを unmanaged にマークし、その後**ボードが起動デバイス（`0955:7020`）として再 enumerate された瞬間に NM を自動で再有効化**します — host はすぐに `192.168.55.x` を取得し、手動の `enable` ステップなしで SSH できます。タイムアウト（デフォルト 1800 秒、第 1 引数で上書き可）により、フラッシュが中止しても NM が復元されます。`disable` / `enable` / `around` / `status` サブコマンドは [`nm_flash_guard.sh`](script/nm_flash_guard.sh) を参照。
@@ -185,7 +185,7 @@ host 側は USB ネットワークインターフェースに `192.168.55.x` を
 
 ### 中断後の再開
 
-各フェーズは進捗を `data/jetson_l4t/.../.prepared.yaml` に記録します。`make run -- -t prepare` を再実行すると完了済みステップ（BSP ダウンロード、rootfs 展開、`apply_binaries.sh`、user 作成、image 生成）をスキップします。JetPack / board の変更は mismatch として検出され、`./script/clean.sh l4t` を示すアクションメッセージ付きで中止します。
+各フェーズは進捗を `data/jetson_l4t/.../.prepared.yaml` に記録します。`just docker run -t prepare` を再実行すると完了済みステップ（BSP ダウンロード、rootfs 展開、`apply_binaries.sh`、user 作成、image 生成）をスキップします。JetPack / board の変更は mismatch として検出され、`./script/clean.sh l4t` を示すアクションメッセージ付きで中止します。
 
 ## Verification status
 
@@ -225,7 +225,7 @@ preset ごとのステータス：
 
 | Stage | 用途 | Jetson 接続必要 |
 |---|---|---|
-| `devel` | フラッシュツール（`l4t_initrd_flash.sh` の依存）。`make build` のデフォルト target。 | いいえ |
+| `devel` | フラッシュツール（`l4t_initrd_flash.sh` の依存）。`just docker build` のデフォルト target。 | いいえ |
 | `devel-test` | Lint（`shellcheck` + `hadolint`）+ bats smoke tests。CI のみ。 | いいえ |
 | `prepare` | フェーズ 1 — BSP + sample rootfs ダウンロード、`apply_binaries.sh`、`l4t_create_default_user.sh`、`l4t_initrd_flash --no-flash`。 | いいえ |
 | `flash` | フェーズ 2 — `l4t_initrd_flash --flash-only`。 | **はい**、APX recovery |
@@ -254,8 +254,8 @@ preset ごとのステータス：
 ファクトリーの `prepare` / `flash` stage がサポート対象のデフォルトです。SDK Manager は、NVIDIA 自身のツールを使いたい、または JetPack の `.deb` カタログを閲覧したいユーザー向けに、2 つの **best-effort** stage として同梱されています：`cli`（`sdkmanager --cli`）と `gui`（グラフィカルクライアント）。どちらも `sdkm-base` 上に構築されており、SDK Manager の Docker 内 device-mode forwarding に必要な `iptables` + `dnsutils` を追加します。
 
 ```bash
-make build -- -t gui    # または: -t cli
-make run -- -t gui      # または: -t cli
+just docker build -t gui    # または: -t cli
+just docker run -t gui      # または: -t cli
 ```
 
 best-effort とは：CI が stage を build し `sdkmanager --ver` を smoke しますが、実際の SDK Manager フラッシュは手動で、NVIDIA の upstream に伴いずれる可能性があるという意味です。GUI/CLI フラッシュを成功させるには、まずファクトリー経路と同じ host 前提をセットアップし（`./script/host_setup.sh` と `./script/nm_flash_guard.sh auto`）、NVIDIA Developer アカウントでサインインします。`gui` の entrypoint はこれらのステップを示す banner を表示し、（対話モードでは）起動前に Enter を待ちます；`-t gui` の後に続く余分な位置引数は（`--no-sandbox` の後で）`sdkmanager-gui` に転送されます。GUI モードは host の X11 セッションが必要です（base template が自動転送）。
@@ -307,7 +307,7 @@ graph TD
 詳細は [TEST.md](test/TEST.md) を参照。
 
 ```bash
-make build test
+just docker build test
 ```
 
 `devel-test` stage は `devel` image に対して bats テストを実行します；2 つの `sdkmanager` アサーションはここでは skip されます（`cli` / `gui` image 内で bats を再実行したときのみ実行）。
@@ -319,7 +319,8 @@ jetson_sdk_manager/
 ├── jetson.yaml -> config/jetson/agx-orin-emmc.yaml   # symlink；preset 切り替え
 ├── compose.yaml                 # Docker Compose（派生、gitignored）
 ├── Dockerfile                   # sys → devel-base → devel → {prepare, flash, probe, sdkm-base → cli/gui}
-├── Makefile -> .base/script/docker/Makefile
+├── justfile -> script/justfile
+├── setup.toml                   # ランタイム設定 — source of truth
 ├── .base/                       # 共有テンプレート（git subtree）
 ├── data/                        # 永続状態（gitignored）
 │   ├── jetson_l4t/              #   BSP + rootfs + フラッシュイメージ
@@ -327,7 +328,6 @@ jetson_sdk_manager/
 │   ├── nvsdkm/                  #   SDK Manager ログインセッション（cli/gui）
 │   └── nvidia_sdk/              #   SDK Manager インストールフォルダ（cli/gui）
 ├── config/
-│   ├── docker/setup.conf        # ランタイム設定 — source of truth
 │   ├── jetson/                  # フラッシュ preset と schema
 │   │   ├── _example.yaml        #   コメント付き canonical schema
 │   │   ├── _l4t_mapping.yaml    #   JetPack → L4T release / URL（build-time）
@@ -370,7 +370,7 @@ jetson_sdk_manager/
 ```bash
 ./script/host_setup.sh           # step 0：data/jetson_l4t.img → data/jetson_l4t に loop-mount
 findmnt ./data/jetson_l4t        # FSTYPE ext4、SOURCE /dev/loopN が表示されるはず
-make run -- -t prepare
+just docker run -t prepare
 ```
 
 調整用の環境変数：`L4T_STORE_SIZE`（既定 `40G`、最小 20G）、`L4T_STORE_DIR`（別の ext4 ディスク上のディレクトリを bind-mount で使う）、`L4T_STORE_BACKEND`（バックエンド強制）。マウントは永続しないので再起動後は `host_setup.sh` を再実行。`./script/host_teardown.sh` でアンマウント、`./script/clean.sh purge`（`--keep-downloads` で tarball を残す）でイメージと marker を削除すれば、その後の `rm -rf <repo>` は残骸ゼロです。詳細は英語 README の "Prerequisites" と "Removing the repo" を参照。
@@ -378,7 +378,8 @@ make run -- -t prepare
 診断目的のみ、`JETSON_ALLOW_NON_UNIX_FS=1` で abort を警告に降格できます：
 
 ```bash
-JETSON_ALLOW_NON_UNIX_FS=1 make run -- -t prepare
+echo 'JETSON_ALLOW_NON_UNIX_FS=1' >> .env.local   # host shell の変数はコンテナに渡りません
+just docker run -t prepare
 ```
 
 **この flag は非 unix ファイルシステムでは使えるフラッシュを生成できません**。NVIDIA の `apply_binaries.sh` 自体が `find rootfs/etc/passwd -user root -group root` で rootfs の ownership を確認し、sample rootfs が誤った owner で展開されると 7/10 ステップ目で自ら abort します。この escape hatch は、maintainer がそのステップまで走らせて失敗モードを実証するためだけのもので、filesystem 制約を回避する手段ではありません。
@@ -389,7 +390,7 @@ JETSON_ALLOW_NON_UNIX_FS=1 make run -- -t prepare
 
 ```bash
 ./script/clean.sh l4t
-make run -- -t prepare
+just docker run -t prepare
 ```
 
 ### `chroot: failed to run command 'dpkg': Exec format error`
@@ -407,7 +408,7 @@ boot ごとに 1 回実行。
 `flash.sh` は `lsusb` に NVIDIA VID `0955` + recovery PID（`7023` / `7223` / `7423` / `7523` / `7e19`）が出るか確認し、無ければ中止します。`probe` stage を単独で実行すると同じ確認ができます — 別のケーブル / port を試すときに毎回 prepare stage の状態を失わずに済みます：
 
 ```bash
-make run -- -t probe
+just docker run -t probe
 ```
 
 bus 上の全 NVIDIA-vendor デバイスを列挙し、どれが recovery 範囲かを注記し、少なくとも 1 つが recovery のときのみ exit 0 になります。
@@ -442,14 +443,13 @@ recovery モードは USB 2.0（480 Mbps）で動作します。これは正常�
  * Not starting NFS kernel daemon: no support in current kernel.
 clnt_create: RPC: Program not registered
 NFS server is not running
-make: *** [Makefile:41: run] Error 114
 ```
 
 host 側で（コンテナ内ではなく）ロードしてから flash を再実行：
 
 ```bash
 sudo modprobe nfsd
-make run -- -t flash
+just docker run -t flash
 ```
 
 `echo nfsd | sudo tee /etc/modules-load.d/nfsd.conf` で再起動後も有効にできます。[前提条件](#前提条件) 参照。`flash.sh` は現在これを事前チェックし、同じ案内付きで早期に中止します。
