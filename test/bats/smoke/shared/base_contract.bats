@@ -13,6 +13,11 @@ setup() {
   SETUP_TOML="${REPO_DIR}/setup.toml"
 }
 
+# _stage_cmd <stage> — the CMD of one Dockerfile stage.
+_stage_cmd() {
+  awk -v want="$1" '/^FROM / { in_stage = ($NF == want) } in_stage && /^CMD /' "${REPO_DIR}/Dockerfile"
+}
+
 # _toml_table <name> — the lines of one [table] in setup.toml.
 _toml_table() {
   awk -v want="[$1]" '/^\[/ { in_table = ($0 == want); next } in_table' "${SETUP_TOML}"
@@ -37,6 +42,19 @@ _toml_table() {
   run grep -rnF 'setup.conf' "${REPO_DIR}/script"
   assert_failure 1
   assert_output ''
+}
+
+@test "jetson.sh passes run.sh the same command the stage's Dockerfile CMD runs" {
+  # Without a command run.sh uses 'compose up', which exits 0 even when the
+  # stage failed; with one it uses 'compose run' and returns the real code.
+  local stage
+  for stage in prepare flash; do
+    run _stage_cmd "${stage}"
+    assert_success
+    assert_output "CMD [\"/opt/jetson_install/${stage}.sh\"]"
+  done
+  run grep -F '"${RUN_BIN}" -t "${stage}" "/opt/jetson_install/${stage}.sh"' "${REPO_DIR}/script/jetson.sh"
+  assert_success
 }
 
 @test "setup.toml: no \${...} in [environment] — it reaches the container as literal text" {

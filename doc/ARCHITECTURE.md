@@ -9,9 +9,9 @@ How the repo is put together. For *using* it, see the [README](../README.md).
 | `./jetson …` | Runs |
 |---|---|
 | `status` | `lib/status.sh` checks + `lsusb -d 0955:` (same PID list as `script/probe.sh`) + `lib/nfs_export.sh::nfs_export_status` (host `rpc.mountd` vs. the L4T exports) |
-| `prepare` | preflight (a Jetson in recovery, unless `--no-board`) → `sudo -v` → `./script/host_setup.sh` → `./script/init_data_dirs.sh` → `./script/run.sh -t prepare` (auto-builds the image) |
+| `prepare` | preflight (a Jetson in recovery, unless `--no-board`) → `sudo -v` → `./script/host_setup.sh` → `./script/init_data_dirs.sh` → `./script/run.sh -t prepare /opt/jetson_install/prepare.sh` (auto-builds the image) |
 | `wait-rec` | polls `lsusb` for a recovery PID |
-| `flash` | preflight (recovery PID, `images` phase in `.prepared.yaml`) → `sudo -v` → `lib/nfs_export.sh::nfs_export_on` (host NFS export of the L4T tree, re-done every flash — [#101](https://github.com/ycpss91255-lab/jetson_sdk_manager/issues/101)) → `./script/nm_flash_guard.sh auto` → `./script/usb_ss_guard.sh auto` → `./script/run.sh -t flash` |
+| `flash` | preflight (recovery PID, `images` phase in `.prepared.yaml`) → `sudo -v` → `lib/nfs_export.sh::nfs_export_on` (host NFS export of the L4T tree, re-done every flash — [#101](https://github.com/ycpss91255-lab/jetson_sdk_manager/issues/101)) → `./script/nm_flash_guard.sh auto` → `./script/usb_ss_guard.sh auto` → `./script/run.sh -t flash /opt/jetson_install/flash.sh` |
 | `teardown` | `./script/host_teardown.sh` (incl. the host NFS unexport, `nm_flash_guard.sh enable` + `usb_ss_guard.sh enable`) |
 | `purge` | `./script/clean.sh purge [--keep-downloads]` |
 
@@ -24,6 +24,8 @@ just docker run -t probe      # the recovery check on its own (or: bash ./script
 ./script/usb_ss_guard.sh status|disable|enable|auto
 ./script/clean.sh build|rootfs|l4t|all|purge
 ```
+
+`just docker run -t <stage>` without a command attaches with `docker compose up`, which exits 0 even when the stage failed — read the log, do not chain it with `&&`. `./jetson` passes the stage's script as the command (`./script/run.sh -t flash /opt/jetson_install/flash.sh`), which returns the real exit code.
 
 ### `host_setup.sh`, step by step
 

@@ -77,7 +77,7 @@ just docker run -t prepare    # フェーズ 1：BSP ダウンロード + フラ
 just docker run -t flash      # フェーズ 2：Jetson に書き込み（約 10 分）
 
 # ...または Jetson を APX recovery (REC) に入れた状態で、1 コマンドで両フェーズを実行:
-just docker run -t prepare && ./script/nm_flash_guard.sh auto && just docker run -t flash
+./jetson all
 ```
 
 > `./script/host_setup.sh` は boot ごとの host 前提を一括実行します（[前提条件](#前提条件) 参照）；`just docker run` は初回に不足している stage image を自動 build します。解説付きの完全な手順——各 stage の `just docker build`、初回起動後の `nvidia-jetpack` インストール、headless 接続、中断後の再開——は [クイックスタート](#クイックスタート) を参照。2 つのフラッシュ機構の違いは [2 つのフラッシュ経路](#2-つのフラッシュ経路) を参照。
@@ -155,7 +155,7 @@ just docker run -t prepare
 # Jetson を APX recovery に：電源オフ、REC を押しながら、電源を再接続、離す。
 just docker build -t probe   # 一度に build できる stage は 1 つ（最後の -t が有効）、分けて build
 just docker build -t flash
-just docker run -t probe     # Jetson が APX にあるか確認（成功時 exit 0）
+just docker run -t probe     # Jetson が APX にあるか確認（出力を見る；exit code は結果を反映しない）
 ./script/nm_flash_guard.sh auto   # 下の「NetworkManager」の注記参照
 just docker run -t flash
 ```
@@ -411,7 +411,7 @@ boot ごとに 1 回実行。
 just docker run -t probe
 ```
 
-bus 上の全 NVIDIA-vendor デバイスを列挙し、どれが recovery 範囲かを注記し、少なくとも 1 つが recovery のときのみ exit 0 になります。
+bus 上の全 NVIDIA-vendor デバイスを列挙し、どれが recovery 範囲かを注記し、少なくとも 1 つが recovery かどうかを表示します。exit code が必要なときは host で `bash ./script/probe.sh` を実行してください（`just docker run -t probe` は常に 0 です）。
 
 recovery モードへの入り方：
 

@@ -75,7 +75,7 @@ just docker run -t prepare    # 阶段 1：下载 BSP + 生成烧录 image（约
 just docker run -t flash      # 阶段 2：写入 Jetson（约 10 分钟）
 
 # ...或在 Jetson 已进入 APX recovery（REC）的情况下,一条命令跑完两阶段:
-just docker run -t prepare && ./script/nm_flash_guard.sh auto && just docker run -t flash
+./jetson all
 ```
 
 > `./script/host_setup.sh` 一次跑完每次开机要做的 host 前置(见 [前置要求](#前置要求));`just docker run` 首次会自动 build 缺少的 stage image。想看有解说的完整流程——各 stage 的 `just docker build`、首次开机装 `nvidia-jetpack`、headless 连接、中断续跑——见 [快速开始](#快速开始)。两种 flash 机制的差异见 [两条烧录路径](#两条烧录路径)。
@@ -153,7 +153,7 @@ just docker run -t prepare
 # Jetson 进入 APX recovery：断电、按住 REC、接电、放开。
 just docker build -t probe   # 一次只能 build 一个 stage（最后的 -t 生效），分开 build
 just docker build -t flash
-just docker run -t probe     # 确认 Jetson 在 APX (exit 0 = ready to flash)
+just docker run -t probe     # 确认 Jetson 在 APX（看输出；exit code 不反映结果）
 ./script/nm_flash_guard.sh auto   # 见下方「NetworkManager」说明
 just docker run -t flash
 ```
@@ -409,7 +409,7 @@ docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 just docker run -t probe
 ```
 
-它会列出 bus 上所有 NVIDIA-vendor 设备, 标注哪些在 recovery 范围, 且只有至少一个在 recovery 时才 exit 0。
+它会列出 bus 上所有 NVIDIA-vendor 设备, 标注哪些在 recovery 范围, 并显示是否至少有一个在 recovery。需要 exit code 时请在 host 上执行 `bash ./script/probe.sh`（`just docker run -t probe` 一律为 0）。
 
 进入 recovery mode 步骤：
 

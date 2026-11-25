@@ -71,7 +71,7 @@ Run once per host boot.
 just docker run -t probe
 ```
 
-It prints every NVIDIA-vendor device on the bus, annotates which ones are in the recovery range, and exits 0 only when at least one is.
+It prints every NVIDIA-vendor device on the bus, annotates which ones are in the recovery range, and reports whether at least one is. For a usable exit code run `bash ./script/probe.sh` on the host; `just docker run -t probe` exits 0 either way.
 
 Recovery mode entry, step-by-step:
 

@@ -284,7 +284,7 @@ COPY --chmod=0755 script/lib /opt/jetson_install/lib
 # Repo snapshot for base_contract.bats: what the scripts call and the
 # setup.toml keys whose base default is unsafe here (restart policy).
 COPY script /opt/repo/script
-COPY setup.toml /opt/repo/setup.toml
+COPY setup.toml Dockerfile /opt/repo/
 
 # Smoke test (shared from template + repo-specific)
 COPY .base/dist/test/bats/smoke/shared/ /smoke_test/

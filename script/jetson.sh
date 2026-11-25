@@ -134,15 +134,16 @@ _warn_host_only_env() {
 }
 
 # _run_stage <stage> — run one container stage in the foreground through the
-# base wrapper and return its exit code. run.sh reports a Ctrl-C'd stage as
-# exit 0 (it treats leaving a foreground container as a clean stop), so the
-# interrupt is recorded here: after Ctrl-C nothing may be called done, and
-# 'all' must not go on to flash.
+# base wrapper and return its exit code. The command is the stage's own
+# Dockerfile CMD, named explicitly: without one run.sh uses 'compose up',
+# which exits 0 even when the stage failed, and a failed flash would be
+# called done. An interrupt is recorded here as well, so that after Ctrl-C
+# 'all' can never go on to flash whatever the wrapper reports.
 _run_stage() {
   local stage="$1" rc=0 interrupted=""
   _warn_host_only_env
   trap 'interrupted=1' INT
-  (cd "${_REPO}" && "${RUN_BIN}" -t "${stage}") || rc=$?
+  (cd "${_REPO}" && "${RUN_BIN}" -t "${stage}" "/opt/jetson_install/${stage}.sh") || rc=$?
   trap - INT
   if [[ -n "${interrupted}" ]]; then
     printf '\n[jetson] %s interrupted\n' "${stage}" >&2

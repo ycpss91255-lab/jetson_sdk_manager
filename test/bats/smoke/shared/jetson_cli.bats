@@ -150,7 +150,7 @@ EOF
   assert_output --partial '192.168.55.1'
   run grep -vE '^(lsusb|sudo|exportfs)' "${CALLS}"
   assert_line --index 0 'nm_flash_guard.sh auto'
-  assert_line --index 2 'run.sh -t flash'
+  assert_line --index 2 'run.sh -t flash /opt/jetson_install/flash.sh'
 }
 
 @test "flash order is nm_flash_guard auto → usb_ss_guard auto → run.sh -t flash (#100)" {
@@ -159,7 +159,7 @@ EOF
   run grep -vE '^(lsusb|sudo|exportfs)' "${CALLS}"
   assert_line --index 0 'nm_flash_guard.sh auto'
   assert_line --index 1 'usb_ss_guard.sh auto'
-  assert_line --index 2 'run.sh -t flash'
+  assert_line --index 2 'run.sh -t flash /opt/jetson_install/flash.sh'
 }
 
 @test "flash refuses when prepare has not recorded the images phase" {
@@ -201,7 +201,7 @@ EOF
   assert_line --index 0 --regexp '^sudo (-n )?-v$'   # -n when there is no tty
   assert_line --index 1 'host_setup.sh '
   assert_line --index 2 'init_data_dirs.sh '
-  assert_line --index 3 'run.sh -t prepare'
+  assert_line --index 3 'run.sh -t prepare /opt/jetson_install/prepare.sh'
 }
 
 @test "prepare stops when host_setup fails and never reaches run.sh" {
@@ -223,10 +223,10 @@ EOF
   run grep -vE '^(lsusb|sudo|exportfs)' "${CALLS}"
   assert_line --index 0 'host_setup.sh '
   assert_line --index 1 'init_data_dirs.sh '
-  assert_line --index 2 'run.sh -t prepare'
+  assert_line --index 2 'run.sh -t prepare /opt/jetson_install/prepare.sh'
   assert_line --index 3 'nm_flash_guard.sh auto'
   assert_line --index 4 'usb_ss_guard.sh auto'
-  assert_line --index 5 'run.sh -t flash'
+  assert_line --index 5 'run.sh -t flash /opt/jetson_install/flash.sh'
 }
 
 @test "all stops after a failed prepare and tells the user how to resume" {
@@ -385,7 +385,7 @@ EOF
   LSUSB_OUT="${BOOTED}" run "${JETSON}" prepare --no-board
   assert_success
   run cat "${CALLS}"
-  assert_output --partial 'run.sh -t prepare'
+  assert_output --partial 'run.sh -t prepare /opt/jetson_install/prepare.sh'
 }
 
 @test "prepare with the board in recovery proceeds" {
@@ -401,10 +401,10 @@ EOF
   assert_output --partial '[3/3] flash'
   run grep -vE '^(lsusb|sudo|exportfs)' "${CALLS}"
   assert_line --index 0 'host_setup.sh '
-  assert_line --index 2 'run.sh -t prepare'
+  assert_line --index 2 'run.sh -t prepare /opt/jetson_install/prepare.sh'
   assert_line --index 3 'nm_flash_guard.sh auto'
   assert_line --index 4 'usb_ss_guard.sh auto'
-  assert_line --index 5 'run.sh -t flash'
+  assert_line --index 5 'run.sh -t flash /opt/jetson_install/flash.sh'
 }
 
 @test "flash validates sudo once before the NetworkManager guard (nm_flash_guard needs root)" {
@@ -431,7 +431,7 @@ EOF
   assert_line --index 7 'exportfs -f'
   assert_line --index 8 'nm_flash_guard.sh auto'
   assert_line --index 9 'usb_ss_guard.sh auto'
-  assert_line --index 10 'run.sh -t flash'
+  assert_line --index 10 'run.sh -t flash /opt/jetson_install/flash.sh'
 }
 
 @test "flash stops before the NM guard when the host export fails (rootfs missing behind the bridge)" {
@@ -511,7 +511,7 @@ EOF
   LSUSB_OUT="${REC}" run "${copy}/script/jetson.sh" flash
   assert_success
   run cat "${CALLS}"
-  assert_line 'default run.sh -t flash'
+  assert_line 'default run.sh -t flash /opt/jetson_install/flash.sh'
 }
 
 @test "Ctrl-C during prepare stops 'all' even though run.sh maps it to exit 0" {
@@ -529,7 +529,7 @@ EOF
   assert_failure 130
   assert_output --partial 'prepare interrupted'
   run cat "${CALLS}"
-  assert_output --partial 'run.sh -t prepare'
+  assert_output --partial 'run.sh -t prepare /opt/jetson_install/prepare.sh'
   refute_output --partial 'run.sh -t flash'
 }
 
