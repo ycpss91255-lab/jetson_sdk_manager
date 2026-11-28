@@ -6,6 +6,7 @@ on:
     tags:
       - 'v*'
   pull_request:
+  merge_group:
   workflow_dispatch:
 
 permissions:
@@ -63,6 +64,24 @@ jobs:
       build_runtime: false
       build_args: |
         BASE_IMAGE=ubuntu:22.04
+
+  # 單一聚合 check，供 org「main merge queue」ruleset 作為 required check。
+  ci-rollup:
+    if: always()
+    needs: [base-ref-drift, store-loop-system, call-docker-build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: 全部必要 job 皆 success 才通過
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "needs results: ${RESULTS}"
+          for r in ${RESULTS}; do
+            case "${r}" in
+              success|skipped) ;;
+              *) echo "::error::有 job 結果為 ${r}"; exit 1 ;;
+            esac
+          done
 
   call-release:
     needs: call-docker-build
